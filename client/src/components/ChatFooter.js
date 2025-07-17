@@ -1,14 +1,46 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import socket from '../socket';
 
-const ChatFooter = () => {
+const ChatFooter = ({ activeChat }) => {
   const [message, setMessage] = useState('');
+  const typingTimeoutRef = useRef(null);
+
+  const emitStopTyping = () => {
+    socket.emit('stopTyping', {
+      sender: sessionStorage.getItem('username'),
+      recipient: activeChat,
+    });
+  };
+
+  const handleTyping = (e) => {
+    setMessage(e.target.value);
+
+    socket.emit('typing', {
+      sender: sessionStorage.getItem('username'),
+      recipient: activeChat,
+    });
+
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+
+    typingTimeoutRef.current = setTimeout(emitStopTyping, 2000);
+  };
 
   const handleSendMessage = (e) => {
     e.preventDefault();
-    if (message.trim()) {
+    if (message.trim() && activeChat) {
       const username = sessionStorage.getItem('username');
-      socket.emit('sendMessage', { text: message, username });
+      socket.emit('sendPrivateMessage', {
+        text: message,
+        sender: username,
+        recipient: activeChat,
+      });
+
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+      emitStopTyping();
       setMessage('');
     }
   };
@@ -18,12 +50,17 @@ const ChatFooter = () => {
       <form onSubmit={handleSendMessage} className="flex">
         <input
           type="text"
-          placeholder="Type your message..."
+          placeholder={activeChat ? `Message ${activeChat}` : 'Select a user to message'}
           className="flex-grow p-2 border rounded-l-lg"
           value={message}
-          onChange={(e) => setMessage(e.target.value)}
+          onChange={handleTyping}
+          disabled={!activeChat}
         />
-        <button type="submit" className="bg-blue-500 text-white p-2 rounded-r-lg">
+        <button
+          type="submit"
+          className="bg-blue-500 text-white p-2 rounded-r-lg disabled:bg-gray-400"
+          disabled={!activeChat}
+        >
           Send
         </button>
       </form>

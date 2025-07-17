@@ -1,4 +1,3 @@
-// server/index.js
 const express = require('express');
 const http = require('http');
 const { Server } = require("socket.io");
@@ -8,7 +7,6 @@ const mongoose = require('mongoose');
 const app = express();
 app.use(cors());
 
-// --- MongoDB Connection ---
 mongoose.connect('mongodb+srv://225186:8536675m@cluster0.002gnfa.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0', {
   useNewUrlParser: true,
   useUnifiedTopology: true,
@@ -16,14 +14,14 @@ mongoose.connect('mongodb+srv://225186:8536675m@cluster0.002gnfa.mongodb.net/?re
 
 const messageSchema = new mongoose.Schema({
   text: String,
-  username: String,
+  sender: String,
+  recipient: String,
   timestamp: { type: Date, default: Date.now },
 });
 
 const Message = mongoose.model('Message', messageSchema);
 
 const server = http.createServer(app);
-
 const io = new Server(server, {
   cors: {
     origin: "http://localhost:3000",
@@ -33,40 +31,78 @@ const io = new Server(server, {
 
 let users = [];
 
-io.on('connection', async (socket) => {
+io.on('connection', (socket) => {
   console.log(`A user connected: ${socket.id}`);
 
-  // Send previous messages to the new user
-  try {
-    const messages = await Message.find().sort({ timestamp: 1 });
-    socket.emit('previousMessages', messages);
-  } catch (error) {
-    console.error('Error fetching previous messages:', error);
-  }
-
   socket.on('newUser', (username) => {
-    users.push({ id: socket.id, username });
-    io.emit('userList', users);
-    socket.broadcast.emit('userJoined', `${username} has joined the chat`);
+    const newUser = { id: socket.id, username };
+    let isNew = false;
+
+    if (!users.some(u => u.username === username)) {
+      users.push(newUser);
+      isNew = true;
+    }
+
+    console.log(`${username} has joined the chat`);
+
+    socket.emit('userList', users);
+
+    if (isNew) {
+      socket.broadcast.emit('userJoined', newUser);
+    }
   });
 
-  socket.on('sendMessage', async (data) => {
-    const newMessage = new Message(data);
+  socket.on('getPrivateMessages', async ({ user1, user2 }) => {
+    try {
+      const messages = await Message.find({
+        $or: [
+          { sender: user1, recipient: user2 },
+          { sender: user2, recipient: user1 }
+        ]
+      }).sort({ timestamp: 1 });
+      socket.emit('privateMessages', messages);
+    } catch (error) {
+      console.error("Error fetching private messages:", error);
+    }
+  });
+
+  socket.on('sendPrivateMessage', async (data) => {
+    const { text, sender, recipient } = data;
+    const recipientSocket = users.find(user => user.username === recipient);
+    const newMessage = new Message({ text, sender, recipient });
+
     try {
       await newMessage.save();
-      io.emit('receiveMessage', newMessage);
+      if (recipientSocket) {
+        io.to(recipientSocket.id).emit('receivePrivateMessage', newMessage);
+      }
+      socket.emit('receivePrivateMessage', newMessage);
     } catch (error) {
-      console.error('Error saving message:', error);
+      console.error('Error saving or sending message:', error);
+    }
+  });
+
+  socket.on('typing', ({ sender, recipient }) => {
+    const recipientSocket = users.find(user => user.username === recipient);
+    if (recipientSocket) {
+      io.to(recipientSocket.id).emit('userTyping', sender);
+    }
+  });
+
+  socket.on('stopTyping', ({ sender, recipient }) => {
+    const recipientSocket = users.find(user => user.username === recipient);
+    if (recipientSocket) {
+      io.to(recipientSocket.id).emit('userStoppedTyping', sender);
     }
   });
 
   socket.on('disconnect', () => {
     const disconnectedUser = users.find(user => user.id === socket.id);
+
     if (disconnectedUser) {
       console.log(`${disconnectedUser.username} disconnected`);
       users = users.filter(user => user.id !== socket.id);
-      io.emit('userList', users);
-      io.emit('userLeft', `${disconnectedUser.username} has left the chat`);
+      io.emit('userLeft', disconnectedUser.username);
     }
   });
 });
