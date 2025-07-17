@@ -2,11 +2,11 @@ Real-Time Chat Application
 
 A full-stack, real-time messaging application built with the MERN stack (MongoDB, Express, React, Node.js) and Socket.IO. This project allows users to engage in private, one-on-one conversations with live user presence and persistent chat history.
 
-Since this project is configured for local demonstration, the GIF below showcases its core real-time functionality.
+## Project :
 
-![alt text](./chat-demo.gif)
+A short video demonstration of the application's features can be viewed by clicking the link below.
 
-(To make this work, replace this line with a real GIF of your application running!)
+**[Watch the Demo Video (demo-video.mp4)](./demo-video.mp4)**
 
 Features Overview:
 
@@ -20,7 +20,19 @@ Persistent Chat History: Conversations are securely saved to a MongoDB database.
 
 User-Friendly Notifications: The interface uses toast notifications to announce when a user joins or leaves the chat.
 
-Tech Stack
+Screenshots:
+
+| Feature | Screenshot |
+
+| **Login Screen** | ![Login Screen](screenshots\login.png) |
+| **Main Chat Interface** | ![Main Chat UI](screenshots\chat-ui.png) |
+| **Typing Indicator** | ![Typing Indicator](screenshots\typing-indicator.png) |
+| **SignIn Notification** | ![SignIn](screenshots\SignIn.png) |
+| **SignOut Notification** | ![SignOut](screenshots\SignOut.png) |
+
+
+Tech Stack:
+
 Component	Technology
 Frontend	React, Socket.IO Client, TailwindCSS, React Router
 Backend	Node.js, Express.js, Socket.IO, Mongoose
@@ -29,15 +41,13 @@ Getting Started & Local Setup Instructions
 
 Follow these instructions to get the project running on your local machine for development and demonstration.
 
-Prerequisites:
+Prerequisites
 
 You will need the following tools installed on your computer:
 
-1-Node.js (v16 or later recommended)
+Node.js (v16 or later recommended) and npm
 
-npm (comes with Node.js)
-
-2-Git
+Git
 
 A free MongoDB Atlas account for the database.
 
@@ -69,9 +79,8 @@ IGNORE_WHEN_COPYING_END
 
 Create a new file named .env in the server directory and add the following, replacing the placeholder with your own MongoDB connection string.
 
-File: server/.env
-
 Generated code
+# File: server/.env
 DATABASE_URL=mongodb+srv://<username>:<password>@cluster-address...
 FRONTEND_URL=http://localhost:3000
 IGNORE_WHEN_COPYING_START
@@ -111,9 +120,8 @@ IGNORE_WHEN_COPYING_END
 
 Create a .env file in the client directory to tell the frontend where the backend is running.
 
-File: client/.env
-
 Generated code
+# File: client/.env
 REACT_APP_SOCKET_URL=http://localhost:4000
 IGNORE_WHEN_COPYING_START
 content_copy
