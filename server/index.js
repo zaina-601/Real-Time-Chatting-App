@@ -6,12 +6,10 @@ const mongoose = require('mongoose');
 
 const app = express();
 app.use(cors());
-
 mongoose.connect('mongodb+srv://225186:8536675m@cluster0.002gnfa.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0', {
   useNewUrlParser: true,
   useUnifiedTopology: true,
 });
-
 const messageSchema = new mongoose.Schema({
   text: String,
   sender: String,
@@ -24,7 +22,7 @@ const Message = mongoose.model('Message', messageSchema);
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: "http://localhost:3000",
+    origin: process.env.FRONTEND_URL || "http://localhost:3000",
     methods: ["GET", "POST"],
   },
 });
