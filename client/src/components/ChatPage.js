@@ -1,17 +1,20 @@
+// client/src/components/ChatPage.js
 import React, { useState, useEffect, useRef } from 'react';
 import socket from '../socket';
-import Peer from 'simple-peer'; 
+import Peer from 'simple-peer';
 
 import ChatSidebar from './ChatSidebar';
 import ChatBody from './ChatBody';
 import ChatFooter from './ChatFooter';
 
 const ChatPage = () => {
+  // This state now holds the full user object: { id, username }
   const [activeChat, setActiveChat] = useState(null);
 
+  // WebRTC State
   const [stream, setStream] = useState(null);
   const [receivingCall, setReceivingCall] = useState(false);
-  const [caller, setCaller] = useState('');
+  const [callerInfo, setCallerInfo] = useState({ id: '', username: '' });
   const [callerSignal, setCallerSignal] = useState();
   const [callAccepted, setCallAccepted] = useState(false);
   const [callEnded, setCallEnded] = useState(false);
@@ -20,10 +23,8 @@ const ChatPage = () => {
   const userVideo = useRef();
   const connectionRef = useRef();
   const currentUser = sessionStorage.getItem('username');
-  const activeChatSocketId = useRef(''); // To store the socket ID of the active chat user
 
   useEffect(() => {
-    // Get user's camera and microphone access
     navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then(stream => {
       setStream(stream);
       if (myVideo.current) {
@@ -31,20 +32,15 @@ const ChatPage = () => {
       }
     });
 
-    socket.on("userList", (users) => {
-        // Find the socket ID for the current active chat user if they exist
-        const activeUser = users.find(u => u.username === activeChat);
-        if(activeUser) activeChatSocketId.current = activeUser.id;
-    });
-
     socket.on("hey", (data) => {
       setReceivingCall(true);
-      setCaller(data.from.username);
+      setCallerInfo(data.from);
       setCallerSignal(data.signal);
     });
-  }, [activeChat]);
+  }, []);
 
-  const callUser = (username) => {
+  const callUser = () => {
+    if (!activeChat) return;
     setCallEnded(false);
     const peer = new Peer({
       initiator: true,
@@ -54,7 +50,7 @@ const ChatPage = () => {
 
     peer.on("signal", (data) => {
       socket.emit("call-user", {
-        to: activeChatSocketId.current, // We need the socket ID to call
+        to: activeChat.id, // Use the ID from the activeChat object
         from: { id: socket.id, username: currentUser },
         signal: data,
       });
@@ -77,7 +73,6 @@ const ChatPage = () => {
   const answerCall = () => {
     setCallAccepted(true);
     setReceivingCall(false);
-
     const peer = new Peer({
       initiator: false,
       trickle: false,
@@ -85,12 +80,11 @@ const ChatPage = () => {
     });
 
     peer.on("signal", (data) => {
-      const callerSocket = // We need to find the caller's socket ID
-      socket.emit("answer-call", { signal: data, to: caller.id });
+      socket.emit("answer-call", { signal: data, to: callerInfo.id });
     });
 
     peer.on("stream", (stream) => {
-      userVideo.current.srcObject = stream;
+      if(userVideo.current) userVideo.current.srcObject = stream;
     });
 
     peer.signal(callerSignal);
@@ -99,20 +93,10 @@ const ChatPage = () => {
 
   const leaveCall = () => {
     setCallEnded(true);
+    setCallAccepted(false); // Reset call accepted state
     if (connectionRef.current) {
         connectionRef.current.destroy();
     }
-    // Optionally, stop media tracks to turn off the camera light
-    if (stream) {
-        stream.getTracks().forEach(track => track.stop());
-    }
-     // Re-request media for future calls
-    navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then(newStream => {
-        setStream(newStream);
-        if (myVideo.current) {
-            myVideo.current.srcObject = newStream;
-        }
-    });
   };
 
   return (
@@ -123,46 +107,44 @@ const ChatPage = () => {
           <h1 className="text-xl font-bold">ChatterBox</h1>
           <div className="text-right">
             <div className="text-gray-300">
-                {activeChat ? `Chat with ${activeChat}` : 'Select a user to chat'}
+              {activeChat ? `Chat with ${activeChat.username}` : 'Select a user to chat'}
             </div>
-            {/* Call Button */}
             {activeChat && !callAccepted && (
-              <button onClick={() => callUser(activeChat)} className="bg-green-500 hover:bg-green-600 text-white font-bold py-1 px-3 rounded ml-4">
+              <button onClick={callUser} className="bg-green-500 hover:bg-green-600 text-white font-bold py-1 px-3 rounded ml-4">
                 Call
               </button>
             )}
-             {callAccepted && !callEnded && (
-                <button onClick={leaveCall} className="bg-red-500 hover:bg-red-600 text-white font-bold py-1 px-3 rounded ml-4">
-                    End Call
-                </button>
+            {callAccepted && !callEnded && (
+              <button onClick={leaveCall} className="bg-red-500 hover:bg-red-600 text-white font-bold py-1 px-3 rounded ml-4">
+                End Call
+              </button>
             )}
           </div>
         </header>
 
-        {/* Video Call Container */}
-        <div className="relative flex-grow">
-            <div className="absolute top-0 left-0 w-full h-full z-10">
-                {/* Remote Video */}
-                {callAccepted && !callEnded && userVideo.current && <video playsInline ref={userVideo} autoPlay className="w-full h-full object-cover" />}
-                {/* My Video */}
-                {stream && myVideo.current && <video playsInline muted ref={myVideo} autoPlay className="absolute w-48 h-36 bottom-4 right-4 rounded-lg border-2 border-white" />}
-            </div>
+        <div className="relative flex-grow bg-gray-100">
+          {/* Chat components are always visible */}
+          <div className="flex flex-col h-full w-full">
+            <ChatBody activeChat={activeChat ? activeChat.username : null} />
+            <ChatFooter activeChat={activeChat ? activeChat.username : null} />
+          </div>
 
-            {/* Chat components are now underneath the video call */}
-            <div className="flex flex-col h-full absolute w-full z-0">
-                <ChatBody activeChat={activeChat} />
-                <ChatFooter activeChat={activeChat} />
+          {/* Video call elements are overlaid when active */}
+          {callAccepted && !callEnded && (
+            <div className="absolute top-0 left-0 w-full h-full bg-black z-10 flex items-center justify-center">
+              <video playsInline ref={userVideo} autoPlay className="h-full w-full object-cover" />
+              <video playsInline muted ref={myVideo} autoPlay className="absolute w-48 h-36 bottom-4 right-4 rounded-lg border-2 border-white z-20" />
             </div>
+          )}
 
-             {/* Incoming Call Notification */}
-            {receivingCall && !callAccepted && (
-                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white p-8 rounded-lg shadow-2xl z-20">
-                    <h2 className="text-xl mb-4">{caller} is calling...</h2>
-                    <button onClick={answerCall} className="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded">
-                        Answer
-                    </button>
-                </div>
-            )}
+          {receivingCall && !callAccepted && (
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white p-8 rounded-lg shadow-2xl z-30">
+              <h2 className="text-xl mb-4">{callerInfo.username} is calling...</h2>
+              <button onClick={answerCall} className="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded">
+                Answer
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

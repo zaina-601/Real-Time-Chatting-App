@@ -1,3 +1,4 @@
+// client/src/components/ChatSidebar.js
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import socket from '../socket';
@@ -14,6 +15,7 @@ const ChatSidebar = ({ setActiveChat }) => {
       return;
     }
 
+    // --- SETUP ALL USER LISTENERS ---
     socket.on('userList', (initialUsers) => {
       setUsers(initialUsers);
     });
@@ -25,12 +27,14 @@ const ChatSidebar = ({ setActiveChat }) => {
 
     socket.on('userLeft', (leftUsername) => {
       toast.error(`${leftUsername} has left.`);
-      setActiveChat(prev => (prev === leftUsername ? null : prev));
+      setActiveChat(prev => (prev && prev.username === leftUsername ? null : prev));
       setUsers((prevUsers) => prevUsers.filter(user => user.username !== leftUsername));
     });
 
+    // --- CRITICAL FIX: Announce that the current user has joined ---
     socket.emit('newUser', currentUser);
 
+    // Cleanup function
     return () => {
       socket.off('userList');
       socket.off('userJoined');
@@ -57,7 +61,8 @@ const ChatSidebar = ({ setActiveChat }) => {
             <li
               key={user.id}
               className="p-4 hover:bg-gray-700 cursor-pointer"
-              onClick={() => setActiveChat(user.username)}
+              // IMPROVEMENT: Pass the whole user object on click
+              onClick={() => setActiveChat(user)}
             >
               {user.username}
             </li>
