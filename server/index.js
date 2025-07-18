@@ -7,7 +7,7 @@ const mongoose = require('mongoose');
 const app = express();
 app.use(cors());
 
-mongoose.connect('mongodb+srv://225186:8536675m@cluster0.002gnfa.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0', {
+mongoose.connect(process.env.MONGO_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
 }).then(() => console.log('MongoDB connected'))
@@ -104,7 +104,6 @@ io.on('connection', (socket) => {
   });
 });
 
-// ✅ Add this to fix "Cannot GET /"
 app.get('/', (req, res) => {
   res.send('Chat backend is running!');
 });
