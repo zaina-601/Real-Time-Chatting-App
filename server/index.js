@@ -10,7 +10,9 @@ app.use(cors());
 mongoose.connect('mongodb+srv://225186:8536675m@cluster0.002gnfa.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0', {
   useNewUrlParser: true,
   useUnifiedTopology: true,
-});
+}).then(() => console.log('MongoDB connected'))
+  .catch(err => console.error('MongoDB connection error:', err));
+
 const messageSchema = new mongoose.Schema({
   text: String,
   sender: String,
@@ -41,8 +43,6 @@ io.on('connection', (socket) => {
       users.push(newUser);
       isNew = true;
     }
-
-    console.log(`${username} has joined the chat`);
 
     socket.emit('userList', users);
 
@@ -97,13 +97,16 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     const disconnectedUser = users.find(user => user.id === socket.id);
-
     if (disconnectedUser) {
-      console.log(`${disconnectedUser.username} disconnected`);
       users = users.filter(user => user.id !== socket.id);
       io.emit('userLeft', disconnectedUser.username);
     }
   });
+});
+
+// ✅ Add this to fix "Cannot GET /"
+app.get('/', (req, res) => {
+  res.send('Chat backend is running!');
 });
 
 const PORT = process.env.PORT || 4000;
