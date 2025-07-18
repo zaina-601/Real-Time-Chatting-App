@@ -95,6 +95,14 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on("call-user", ({ to, from, signal }) => {
+    io.to(to).emit("hey", { signal, from });
+  });
+
+  socket.on("answer-call", ({ to, signal }) => {
+    io.to(to).emit("call-accepted", signal);
+  });
+
   socket.on('disconnect', () => {
     const disconnectedUser = users.find(user => user.id === socket.id);
     if (disconnectedUser) {
