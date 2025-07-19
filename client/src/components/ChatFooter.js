@@ -1,37 +1,12 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import socket from '../socket';
 
 const ChatFooter = ({ activeChat }) => {
   const [message, setMessage] = useState('');
-  const typingTimeoutRef = useRef(null);
 
   useEffect(() => {
     setMessage('');
   }, [activeChat]);
-
-  const emitStopTyping = () => {
-    socket.emit('stopTyping', {
-      sender: sessionStorage.getItem('username'),
-      recipient: activeChat,
-    });
-  };
-
-  const handleTyping = (e) => {
-    setMessage(e.target.value);
-    if (activeChat && !typingTimeoutRef.current) {
-        socket.emit('typing', {
-            sender: sessionStorage.getItem('username'),
-            recipient: activeChat,
-        });
-    }
-    if (typingTimeoutRef.current) {
-      clearTimeout(typingTimeoutRef.current);
-    }
-    typingTimeoutRef.current = setTimeout(() => {
-        emitStopTyping();
-        typingTimeoutRef.current = null;
-    }, 2000);
-  };
 
   const handleSendMessage = (e) => {
     e.preventDefault();
@@ -42,14 +17,12 @@ const ChatFooter = ({ activeChat }) => {
         sender: username,
         recipient: activeChat,
       };
-      console.log("CLIENT: Sending private message:", messageData);
+
+      console.log("CLIENT SENDING: 'sendPrivateMessage' with data:", messageData);
       socket.emit('sendPrivateMessage', messageData);
-      if (typingTimeoutRef.current) {
-        clearTimeout(typingTimeoutRef.current);
-        typingTimeoutRef.current = null;
-      }
-      emitStopTyping();
       setMessage('');
+    } else {
+        console.log("CLIENT NOT SENDING: Message is empty or no active chat selected.");
     }
   };
 
@@ -61,7 +34,7 @@ const ChatFooter = ({ activeChat }) => {
           placeholder={activeChat ? `Message ${activeChat}` : 'Select a user to message'}
           className="flex-grow p-2 border border-gray-300 rounded-l-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
           value={message}
-          onChange={handleTyping}
+          onChange={(e) => setMessage(e.target.value)}
           disabled={!activeChat}
         />
         <button

@@ -1,3 +1,5 @@
+// require('dotenv').config();
+
 const express = require('express');
 const http = require('http');
 const { Server } = require("socket.io");
@@ -6,22 +8,18 @@ const mongoose = require('mongoose');
 
 const app = express();
 
-// --- HARDCODED URL: Direct Vercel URL yahan daal dein ---
 const frontendURL = "https://real-time-chatting-app-alpha.vercel.app";
-
 app.use(cors({ origin: frontendURL }));
 
 app.get('/', (req, res) => {
-  res.status(200).send('<h1>Real-Time Chat Server is running.</h1><p>Please use the frontend application to chat.</p>');
+  res.status(200).send('<h1>Real-Time Chat Server is running.</h1>');
 });
 
-// --- HARDCODED URI: Direct Mongo URI yahan daal dein ---
 const mongoURI = "mongodb+srv://225186:8536675m@cluster0.002gnfa.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
 
 mongoose.connect(mongoURI)
   .then(() => console.log("MongoDB connected successfully."))
   .catch(err => console.error("MongoDB connection error:", err));
-
 
 const messageSchema = new mongoose.Schema({
   text: String,
@@ -31,19 +29,17 @@ const messageSchema = new mongoose.Schema({
 });
 
 const Message = mongoose.model('Message', messageSchema);
-
 const server = http.createServer(app);
 
 const io = new Server(server, {
   cors: {
-    origin: frontendURL, // CORS ke liye bhi hardcoded URL
+    origin: frontendURL,
     methods: ["GET", "POST"],
   },
 });
 
 let users = [];
 
-// Yahan se connection ka block shuru hota hai
 io.on('connection', (socket) => {
   console.log(`A user connected: ${socket.id}`);
 
@@ -51,70 +47,52 @@ io.on('connection', (socket) => {
     if (username && !users.some(u => u.username === username)) {
       const newUser = { id: socket.id, username };
       users.push(newUser);
-      console.log(`${username} has joined the chat. Current users:`, users.map(u=>u.username));
+      console.log(`User Joined: ${username}. Total users: ${users.length}`);
       socket.broadcast.emit('userJoined', newUser);
     }
     io.emit('userList', users);
   });
 
-  socket.on('getPrivateMessages', async ({ user1, user2 }) => {
-    try {
-      const messages = await Message.find({
-        $or: [
-          { sender: user1, recipient: user2 },
-          { sender: user2, recipient: user1 }
-        ]
-      }).sort({ timestamp: 1 });
-      socket.emit('privateMessages', messages);
-    } catch (error) {
-      console.error("Error fetching private messages:", error);
-    }
-  });
-
   socket.on('sendPrivateMessage', async (data) => {
-    console.log("SERVER: Received 'sendPrivateMessage' event with data:", data);
+    console.log("SERVER RECEIVED: 'sendPrivateMessage' with data:", data);
+
     const { text, sender, recipient } = data;
+    if (!text || !sender || !recipient) {
+      console.error("SERVER ERROR: Message data is incomplete.", data);
+      return;
+    }
+
     const recipientSocket = users.find(user => user.username === recipient);
     const newMessage = new Message({ text, sender, recipient });
 
     try {
       await newMessage.save();
-      console.log("SERVER: Message saved to database successfully.");
+      console.log("SERVER: Message saved to DB.");
+      
       if (recipientSocket) {
-        console.log(`SERVER: Sending message to recipient: ${recipient}`);
+        console.log(`SERVER: Found recipient ${recipient}. Sending message to socket ${recipientSocket.id}.`);
         io.to(recipientSocket.id).emit('receivePrivateMessage', newMessage);
+      } else {
+        console.log(`SERVER: Recipient ${recipient} is not online.`);
       }
-      console.log(`SERVER: Sending message back to sender: ${sender}`);
-      socket.emit('receivePrivateMessage', newMessage);
-    } catch (error) {
-      console.error('SERVER ERROR: Could not save or send message:', error);
-    }
-  });
-  
-  socket.on('typing', ({ sender, recipient }) => {
-    const recipientSocket = users.find(user => user.username === recipient);
-    if (recipientSocket) {
-      io.to(recipientSocket.id).emit('userTyping', sender);
-    }
-  });
 
-  socket.on('stopTyping', ({ sender, recipient }) => {
-    const recipientSocket = users.find(user => user.username === recipient);
-    if (recipientSocket) {
-      io.to(recipientSocket.id).emit('userStoppedTyping', sender);
+      console.log(`SERVER: Sending message back to sender ${sender}.`);
+      socket.emit('receivePrivateMessage', newMessage);
+
+    } catch (error) {
+      console.error('SERVER ERROR: Could not save/send message:', error);
     }
   });
 
   socket.on('disconnect', () => {
     const disconnectedUser = users.find(user => user.id === socket.id);
     if (disconnectedUser) {
-      console.log(`${disconnectedUser.username} disconnected`);
+      console.log(`${disconnectedUser.username} disconnected.`);
       users = users.filter(user => user.id !== socket.id);
       io.emit('userList', users);
     }
   });
-  
-}); // <-- Connection ka block yahan aakhir mein band ho raha hai.
+});
 
 const PORT = process.env.PORT || 4000;
 server.listen(PORT, () => {
