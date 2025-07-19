@@ -1,4 +1,4 @@
-// require('dotenv').config(); 
+// require('dotenv').config();
 
 const express = require('express');
 const http = require('http');
@@ -52,14 +52,19 @@ io.on('connection', (socket) => {
     io.emit('userList', users);
   });
 
+  // --- FINAL FIX IS HERE ---
   socket.on('getPrivateMessages', async ({ user1, user2 }) => {
     try {
-      const messages = await Message.find({
+      const messageDocs = await Message.find({
         $or: [
           { sender: user1, recipient: user2 },
           { sender: user2, recipient: user1 }
         ]
       }).sort({ timestamp: 1 });
+
+      // FIX: Database se aaye Mongoose objects ko saaday objects mein convert karein
+      const messages = messageDocs.map(doc => doc.toObject());
+
       socket.emit('privateMessages', messages);
     } catch (error) {
       console.error("Error fetching private messages:", error);
@@ -74,7 +79,7 @@ io.on('connection', (socket) => {
 
     try {
       const savedMessage = await newMessage.save();
-      const messagePayload = savedMessage.toObject();
+      const messagePayload = savedMessage.toObject(); // Ye pehle se theek tha
 
       const recipientSocket = users.find(user => user.username === recipient);
 
@@ -85,20 +90,6 @@ io.on('connection', (socket) => {
 
     } catch (error) {
       console.error('SERVER ERROR:', error);
-    }
-  });
-  
-  socket.on('typing', ({ sender, recipient }) => {
-    const recipientSocket = users.find(user => user.username === recipient);
-    if (recipientSocket) {
-      io.to(recipientSocket.id).emit('userTyping', sender);
-    }
-  });
-
-  socket.on('stopTyping', ({ sender, recipient }) => {
-    const recipientSocket = users.find(user => user.username === recipient);
-    if (recipientSocket) {
-      io.to(recipientSocket.id).emit('userStoppedTyping', sender);
     }
   });
 
