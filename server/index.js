@@ -1,4 +1,4 @@
-// require('dotenv').config();
+// require('dotenv').config(); 
 
 const express = require('express');
 const http = require('http');
@@ -47,47 +47,64 @@ io.on('connection', (socket) => {
     if (username && !users.some(u => u.username === username)) {
       const newUser = { id: socket.id, username };
       users.push(newUser);
-      console.log(`User Joined: ${username}. Total users: ${users.length}`);
       socket.broadcast.emit('userJoined', newUser);
     }
     io.emit('userList', users);
   });
 
-  socket.on('sendPrivateMessage', async (data) => {
-    console.log("SERVER RECEIVED: 'sendPrivateMessage' with data:", data);
-
-    const { text, sender, recipient } = data;
-    if (!text || !sender || !recipient) {
-      console.error("SERVER ERROR: Message data is incomplete.", data);
-      return;
+  socket.on('getPrivateMessages', async ({ user1, user2 }) => {
+    try {
+      const messages = await Message.find({
+        $or: [
+          { sender: user1, recipient: user2 },
+          { sender: user2, recipient: user1 }
+        ]
+      }).sort({ timestamp: 1 });
+      socket.emit('privateMessages', messages);
+    } catch (error) {
+      console.error("Error fetching private messages:", error);
     }
+  });
 
-    const recipientSocket = users.find(user => user.username === recipient);
+  socket.on('sendPrivateMessage', async (data) => {
+    const { text, sender, recipient } = data;
+    if (!text || !sender || !recipient) return;
+
     const newMessage = new Message({ text, sender, recipient });
 
     try {
-      await newMessage.save();
-      console.log("SERVER: Message saved to DB.");
-      
-      if (recipientSocket) {
-        console.log(`SERVER: Found recipient ${recipient}. Sending message to socket ${recipientSocket.id}.`);
-        io.to(recipientSocket.id).emit('receivePrivateMessage', newMessage);
-      } else {
-        console.log(`SERVER: Recipient ${recipient} is not online.`);
-      }
+      const savedMessage = await newMessage.save();
+      const messagePayload = savedMessage.toObject();
 
-      console.log(`SERVER: Sending message back to sender ${sender}.`);
-      socket.emit('receivePrivateMessage', newMessage);
+      const recipientSocket = users.find(user => user.username === recipient);
+
+      if (recipientSocket) {
+        io.to(recipientSocket.id).emit('receivePrivateMessage', messagePayload);
+      }
+      socket.emit('receivePrivateMessage', messagePayload);
 
     } catch (error) {
-      console.error('SERVER ERROR: Could not save/send message:', error);
+      console.error('SERVER ERROR:', error);
+    }
+  });
+  
+  socket.on('typing', ({ sender, recipient }) => {
+    const recipientSocket = users.find(user => user.username === recipient);
+    if (recipientSocket) {
+      io.to(recipientSocket.id).emit('userTyping', sender);
+    }
+  });
+
+  socket.on('stopTyping', ({ sender, recipient }) => {
+    const recipientSocket = users.find(user => user.username === recipient);
+    if (recipientSocket) {
+      io.to(recipientSocket.id).emit('userStoppedTyping', sender);
     }
   });
 
   socket.on('disconnect', () => {
     const disconnectedUser = users.find(user => user.id === socket.id);
     if (disconnectedUser) {
-      console.log(`${disconnectedUser.username} disconnected.`);
       users = users.filter(user => user.id !== socket.id);
       io.emit('userList', users);
     }

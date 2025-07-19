@@ -16,7 +16,6 @@ const ChatSidebar = ({ setActiveChat, activeChat }) => {
     }
     
     const handleConnect = () => {
-      console.log('Socket connected! Emitting newUser.');
       socket.emit('newUser', currentUser);
     };
 
@@ -27,7 +26,6 @@ const ChatSidebar = ({ setActiveChat, activeChat }) => {
     socket.on('connect', handleConnect);
 
     socket.on('userList', (allUsers) => {
-      console.log('Received user list:', allUsers);
       setUsers(allUsers);
     });
     
