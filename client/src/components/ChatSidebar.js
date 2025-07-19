@@ -15,18 +15,30 @@ const ChatSidebar = ({ setActiveChat, activeChat }) => {
       return;
     }
 
-    // Emit newUser event when component mounts or user reconnects
-    socket.emit('newUser', currentUser);
-    socket.on('connect', () => {
-      socket.emit('newUser', currentUser);
-    });
+    // --- FIX: The Main Change is Here ---
+    // We will ONLY emit the 'newUser' event inside the 'connect' listener.
+    // This guarantees we only try to join the chat *after* a connection is established.
 
-    // Listen for the full user list
+    const handleConnect = () => {
+      console.log('Socket connected! Emitting newUser.');
+      socket.emit('newUser', currentUser);
+    };
+
+    // If the socket is already connected when this component loads, emit immediately.
+    if (socket.connected) {
+      handleConnect();
+    }
+
+    // Set up the listener for future connections (e.g., after a disconnect).
+    socket.on('connect', handleConnect);
+
+    // Listen for the full user list from the server
     socket.on('userList', (allUsers) => {
+      console.log('Received user list:', allUsers);
       setUsers(allUsers);
     });
 
-    // Listen for a single new user joining
+    // Listen for a single new user joining to show the toast notification
     socket.on('userJoined', (newUser) => {
         if (newUser.username !== currentUser && !announcedUsers.current.has(newUser.username)) {
             toast.success(`${newUser.username} has joined!`);
@@ -34,8 +46,9 @@ const ChatSidebar = ({ setActiveChat, activeChat }) => {
         }
     });
 
+    // Cleanup listeners when the component unmounts
     return () => {
-      socket.off('connect');
+      socket.off('connect', handleConnect);
       socket.off('userList');
       socket.off('userJoined');
     };
@@ -61,7 +74,6 @@ const ChatSidebar = ({ setActiveChat, activeChat }) => {
             <li
               key={user.id}
               className={`p-4 cursor-pointer ${activeChat === user.username ? 'bg-gray-600' : 'hover:bg-gray-700'}`}
-              // FIX: Pass the username string, not the whole object
               onClick={() => setActiveChat(user.username)}
             >
               {user.username}

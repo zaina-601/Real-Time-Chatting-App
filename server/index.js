@@ -42,11 +42,16 @@ io.on('connection', (socket) => {
   console.log(`A user connected: ${socket.id}`);
 
   socket.on('newUser', (username) => {
+    // Check if the user is not already in the list
     if (username && !users.some(u => u.username === username)) {
       const newUser = { id: socket.id, username };
       users.push(newUser);
-      console.log(`${username} has joined the chat`);
+      console.log(`${username} has joined the chat. Current users:`, users.map(u => u.username));
+      
+      // --- FIX: Announce the new user to all OTHER clients for the toast notification ---
+      socket.broadcast.emit('userJoined', newUser);
     }
+    // Always send the complete, updated user list to EVERYONE (including the new user)
     io.emit('userList', users);
   });
 
@@ -100,6 +105,7 @@ io.on('connection', (socket) => {
     if (disconnectedUser) {
       console.log(`${disconnectedUser.username} disconnected`);
       users = users.filter(user => user.id !== socket.id);
+      // Broadcast the updated user list to all remaining clients
       io.emit('userList', users);
     }
   });
