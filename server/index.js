@@ -1,4 +1,4 @@
-require('dotenv').config();
+// require('dotenv').config(); // Hum isay test ke liye disable kar rahe hain
 
 const express = require('express');
 const http = require('http');
@@ -8,10 +8,13 @@ const mongoose = require('mongoose');
 
 const app = express();
 
-const frontendURL = process.env.FRONTEND_URL;
+// --- HARDCODED CHANGE: Direct Vercel URL yahan daal dein ---
+const frontendURL = "https://real-time-chatting-app-alpha.vercel.app";
+
 app.use(cors({ origin: frontendURL }));
 
-const mongoURI = process.env.MONGO_URI;
+// --- HARDCODED CHANGE: Direct Mongo URI yahan daal dein ---
+const mongoURI = "mongodb+srv://225186:8536675m@cluster0.002gnfa.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
 
 mongoose.connect(mongoURI)
   .then(() => console.log("MongoDB connected successfully."))
@@ -31,7 +34,7 @@ const server = http.createServer(app);
 
 const io = new Server(server, {
   cors: {
-    origin: frontendURL,
+    origin: frontendURL, // CORS ke liye bhi hardcoded URL
     methods: ["GET", "POST"],
   },
 });
@@ -42,19 +45,16 @@ io.on('connection', (socket) => {
   console.log(`A user connected: ${socket.id}`);
 
   socket.on('newUser', (username) => {
-    // Check if the user is not already in the list
     if (username && !users.some(u => u.username === username)) {
       const newUser = { id: socket.id, username };
       users.push(newUser);
-      console.log(`${username} has joined the chat. Current users:`, users.map(u => u.username));
-      
-      // --- FIX: Announce the new user to all OTHER clients for the toast notification ---
+      console.log(`${username} has joined the chat. Current users:`, users.map(u=>u.username));
       socket.broadcast.emit('userJoined', newUser);
     }
-    // Always send the complete, updated user list to EVERYONE (including the new user)
     io.emit('userList', users);
   });
 
+  // ... baaki ka code same rahega ...
   socket.on('getPrivateMessages', async ({ user1, user2 }) => {
     try {
       const messages = await Message.find({
@@ -105,7 +105,6 @@ io.on('connection', (socket) => {
     if (disconnectedUser) {
       console.log(`${disconnectedUser.username} disconnected`);
       users = users.filter(user => user.id !== socket.id);
-      // Broadcast the updated user list to all remaining clients
       io.emit('userList', users);
     }
   });
