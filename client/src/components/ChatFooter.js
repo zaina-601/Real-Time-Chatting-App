@@ -18,11 +18,10 @@ const ChatFooter = ({ activeChat }) => {
         recipient: activeChat,
       };
 
-      console.log("CLIENT SENDING: 'sendPrivateMessage' with data:", messageData);
+      console.log("CLIENT SENDING:", messageData);
       socket.emit('sendPrivateMessage', messageData);
+
       setMessage('');
-    } else {
-        console.log("CLIENT NOT SENDING: Message is empty or no active chat selected.");
     }
   };
 
