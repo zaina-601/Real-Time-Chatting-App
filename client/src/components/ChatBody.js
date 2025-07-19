@@ -9,28 +9,28 @@ const ChatBody = ({ activeChat }) => {
   const lastMessageRef = useRef(null);
   const currentUser = sessionStorage.getItem('username');
 
-  // Effect to fetch message history when activeChat changes
   useEffect(() => {
-    setMessages([]); // Clear previous messages
+    setMessages([]);
     setTypingUser(null);
     if (activeChat) {
       socket.emit('getPrivateMessages', { user1: currentUser, user2: activeChat });
     }
   }, [activeChat, currentUser]);
 
-  // Effect to handle real-time events from socket
   useEffect(() => {
     const handlePrivateMessage = (data) => {
-      // FIX: Correctly check if the message belongs to the active conversation
+      console.log("CLIENT: Received 'receivePrivateMessage' event with data:", data);
+      
       const isForCurrentChat =
         (data.sender === currentUser && data.recipient === activeChat) ||
         (data.sender === activeChat && data.recipient === currentUser);
 
+      console.log("CLIENT: Is this message for the current chat?", isForCurrentChat);
+
       if (isForCurrentChat) {
         setMessages((prevMessages) => [...prevMessages, data]);
-        setTypingUser(null); // Stop showing typing indicator when message arrives
+        setTypingUser(null);
       } else {
-        // Notify user of message from a different chat
         if (data.sender !== currentUser) {
           toast.info(`New message from ${data.sender}`);
         }
@@ -58,7 +58,6 @@ const ChatBody = ({ activeChat }) => {
     };
   }, [activeChat, currentUser]);
 
-  // Effect to scroll to the latest message
   useEffect(() => {
     lastMessageRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
@@ -66,7 +65,7 @@ const ChatBody = ({ activeChat }) => {
   if (!activeChat) {
     return (
       <div className="flex-grow p-4 flex items-center justify-center bg-gray-100">
-        <ToastContainer />
+        <ToastContainer position="top-right" />
         <p className="text-gray-500">Select a user from the sidebar to start a conversation.</p>
       </div>
     );
@@ -75,7 +74,7 @@ const ChatBody = ({ activeChat }) => {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <div className="flex-grow p-4 overflow-y-auto bg-gray-100">
-        <ToastContainer />
+        <ToastContainer position="top-right" />
         {messages.map((msg, index) => (
           <div
             key={index}
@@ -94,7 +93,6 @@ const ChatBody = ({ activeChat }) => {
         ))}
         <div ref={lastMessageRef} />
       </div>
-
       <div className="h-6 px-4 text-gray-500 italic">
         {typingUser && `${typingUser} is typing...`}
       </div>

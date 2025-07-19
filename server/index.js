@@ -1,5 +1,3 @@
-// require('dotenv').config(); // Hum isay test ke liye disable kar rahe hain
-
 const express = require('express');
 const http = require('http');
 const { Server } = require("socket.io");
@@ -8,12 +6,12 @@ const mongoose = require('mongoose');
 
 const app = express();
 
-// --- HARDCODED CHANGE: Direct Vercel URL yahan daal dein ---
+// --- HARDCODED URL: Direct Vercel URL yahan daal dein ---
 const frontendURL = "https://real-time-chatting-app-alpha.vercel.app";
 
 app.use(cors({ origin: frontendURL }));
 
-// --- HARDCODED CHANGE: Direct Mongo URI yahan daal dein ---
+// --- HARDCODED URI: Direct Mongo URI yahan daal dein ---
 const mongoURI = "mongodb+srv://225186:8536675m@cluster0.002gnfa.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
 
 mongoose.connect(mongoURI)
@@ -41,6 +39,7 @@ const io = new Server(server, {
 
 let users = [];
 
+// Yahan se connection ka block shuru hota hai
 io.on('connection', (socket) => {
   console.log(`A user connected: ${socket.id}`);
 
@@ -54,7 +53,6 @@ io.on('connection', (socket) => {
     io.emit('userList', users);
   });
 
-  // ... baaki ka code same rahega ...
   socket.on('getPrivateMessages', async ({ user1, user2 }) => {
     try {
       const messages = await Message.find({
@@ -70,21 +68,25 @@ io.on('connection', (socket) => {
   });
 
   socket.on('sendPrivateMessage', async (data) => {
+    console.log("SERVER: Received 'sendPrivateMessage' event with data:", data);
     const { text, sender, recipient } = data;
     const recipientSocket = users.find(user => user.username === recipient);
     const newMessage = new Message({ text, sender, recipient });
 
     try {
       await newMessage.save();
+      console.log("SERVER: Message saved to database successfully.");
       if (recipientSocket) {
+        console.log(`SERVER: Sending message to recipient: ${recipient}`);
         io.to(recipientSocket.id).emit('receivePrivateMessage', newMessage);
       }
+      console.log(`SERVER: Sending message back to sender: ${sender}`);
       socket.emit('receivePrivateMessage', newMessage);
     } catch (error) {
-      console.error('Error saving or sending message:', error);
+      console.error('SERVER ERROR: Could not save or send message:', error);
     }
   });
-
+  
   socket.on('typing', ({ sender, recipient }) => {
     const recipientSocket = users.find(user => user.username === recipient);
     if (recipientSocket) {
@@ -101,14 +103,14 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     const disconnectedUser = users.find(user => user.id === socket.id);
-
     if (disconnectedUser) {
       console.log(`${disconnectedUser.username} disconnected`);
       users = users.filter(user => user.id !== socket.id);
       io.emit('userList', users);
     }
   });
-});
+  
+}); // <-- Connection ka block yahan aakhir mein band ho raha hai.
 
 const PORT = process.env.PORT || 4000;
 server.listen(PORT, () => {
