@@ -11,6 +11,10 @@ const frontendURL = "https://real-time-chatting-app-alpha.vercel.app";
 
 app.use(cors({ origin: frontendURL }));
 
+app.get('/', (req, res) => {
+  res.status(200).send('<h1>Real-Time Chat Server is running.</h1><p>Please use the frontend application to chat.</p>');
+});
+
 // --- HARDCODED URI: Direct Mongo URI yahan daal dein ---
 const mongoURI = "mongodb+srv://225186:8536675m@cluster0.002gnfa.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
 
