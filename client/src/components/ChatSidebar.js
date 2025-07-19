@@ -14,32 +14,36 @@ const ChatSidebar = ({ setActiveChat, activeChat }) => {
       navigate('/');
       return;
     }
-    
+
     const handleConnect = () => {
+      console.log("🔗 Connected to socket with id:", socket.id);
       socket.emit('newUser', currentUser);
     };
 
+    const handleUserList = (allUsers) => {
+      setUsers(allUsers);
+    };
+
+    const handleUserJoined = (newUser) => {
+      if (newUser.username !== currentUser && !announcedUsers.current.has(newUser.username)) {
+        toast.success(`${newUser.username} has joined!`);
+        announcedUsers.current.add(newUser.username);
+      }
+    };
+
+    socket.on('connect', handleConnect);
+    socket.on('userList', handleUserList);
+    socket.on('userJoined', handleUserJoined);
+
+    // In case already connected, emit immediately
     if (socket.connected) {
       handleConnect();
     }
 
-    socket.on('connect', handleConnect);
-
-    socket.on('userList', (allUsers) => {
-      setUsers(allUsers);
-    });
-    
-    socket.on('userJoined', (newUser) => {
-        if (newUser.username !== currentUser && !announcedUsers.current.has(newUser.username)) {
-            toast.success(`${newUser.username} has joined!`);
-            announcedUsers.current.add(newUser.username);
-        }
-    });
-
     return () => {
       socket.off('connect', handleConnect);
-      socket.off('userList');
-      socket.off('userJoined');
+      socket.off('userList', handleUserList);
+      socket.off('userJoined', handleUserJoined);
     };
   }, [currentUser, navigate]);
 
@@ -47,7 +51,7 @@ const ChatSidebar = ({ setActiveChat, activeChat }) => {
     sessionStorage.removeItem('username');
     socket.disconnect();
     navigate('/');
-    socket.connect();
+    socket.connect(); // Reconnect after navigating away
   };
 
   return (
