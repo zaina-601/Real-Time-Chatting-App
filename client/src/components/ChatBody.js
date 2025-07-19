@@ -9,36 +9,40 @@ const ChatBody = ({ activeChat }) => {
   const lastMessageRef = useRef(null);
   const currentUser = sessionStorage.getItem('username');
 
+  // Effect to fetch message history when activeChat changes
   useEffect(() => {
-    setMessages([]);
+    setMessages([]); // Clear previous messages
     setTypingUser(null);
-
     if (activeChat) {
       socket.emit('getPrivateMessages', { user1: currentUser, user2: activeChat });
     }
   }, [activeChat, currentUser]);
 
+  // Effect to handle real-time events from socket
   useEffect(() => {
     const handlePrivateMessage = (data) => {
-      if (data.sender === activeChat || data.sender === currentUser) {
+      // FIX: Correctly check if the message belongs to the active conversation
+      const isForCurrentChat =
+        (data.sender === currentUser && data.recipient === activeChat) ||
+        (data.sender === activeChat && data.recipient === currentUser);
+
+      if (isForCurrentChat) {
         setMessages((prevMessages) => [...prevMessages, data]);
+        setTypingUser(null); // Stop showing typing indicator when message arrives
+      } else {
+        // Notify user of message from a different chat
+        if (data.sender !== currentUser) {
+          toast.info(`New message from ${data.sender}`);
+        }
       }
-      if (data.sender !== currentUser) {
-        toast.info(`New message from ${data.sender}`);
-      }
-      setTypingUser(null);
     };
 
     const handleUserTyping = (sender) => {
-      if (sender === activeChat) {
-        setTypingUser(sender);
-      }
+      if (sender === activeChat) setTypingUser(sender);
     };
 
     const handleUserStoppedTyping = (sender) => {
-      if (sender === activeChat) {
-        setTypingUser(null);
-      }
+      if (sender === activeChat) setTypingUser(null);
     };
 
     socket.on('privateMessages', (history) => setMessages(history));
@@ -54,6 +58,7 @@ const ChatBody = ({ activeChat }) => {
     };
   }, [activeChat, currentUser]);
 
+  // Effect to scroll to the latest message
   useEffect(() => {
     lastMessageRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
@@ -61,8 +66,8 @@ const ChatBody = ({ activeChat }) => {
   if (!activeChat) {
     return (
       <div className="flex-grow p-4 flex items-center justify-center bg-gray-100">
-        <p className="text-gray-500">Select a user from the sidebar to start a conversation.</p>
         <ToastContainer />
+        <p className="text-gray-500">Select a user from the sidebar to start a conversation.</p>
       </div>
     );
   }
@@ -76,12 +81,12 @@ const ChatBody = ({ activeChat }) => {
             key={index}
             className={`mb-4 flex ${msg.sender === currentUser ? 'justify-end' : 'justify-start'}`}
           >
-            <div className={`p-3 rounded-lg max-w-md ${msg.sender === currentUser ? 'bg-blue-500 text-white' : 'bg-white'}`}>
+            <div className={`p-3 rounded-lg max-w-md ${msg.sender === currentUser ? 'bg-blue-500 text-white' : 'bg-white shadow'}`}>
               {msg.sender !== currentUser && (
                 <p className="font-bold text-sm text-blue-600">{msg.sender}</p>
               )}
-              <p className="text-gray-800">{msg.text}</p>
-              <p className="text-xs text-right mt-1 opacity-60">
+              <p>{msg.text}</p>
+              <p className={`text-xs mt-1 opacity-70 ${msg.sender === currentUser ? 'text-blue-200' : 'text-gray-500'}`}>
                 {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               </p>
             </div>

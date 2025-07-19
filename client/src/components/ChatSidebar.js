@@ -1,13 +1,13 @@
-// client/src/components/ChatSidebar.js
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import socket from '../socket';
 import { toast } from 'react-toastify';
 
-const ChatSidebar = ({ setActiveChat }) => {
+const ChatSidebar = ({ setActiveChat, activeChat }) => {
   const [users, setUsers] = useState([]);
   const navigate = useNavigate();
   const currentUser = sessionStorage.getItem('username');
+  const announcedUsers = useRef(new Set());
 
   useEffect(() => {
     if (!currentUser) {
@@ -15,38 +15,38 @@ const ChatSidebar = ({ setActiveChat }) => {
       return;
     }
 
-    // --- SETUP ALL USER LISTENERS ---
-    socket.on('userList', (initialUsers) => {
-      setUsers(initialUsers);
-    });
-
-    socket.on('userJoined', (newUser) => {
-      toast.success(`${newUser.username} has joined!`);
-      setUsers((prevUsers) => [...prevUsers, newUser]);
-    });
-
-    socket.on('userLeft', (leftUsername) => {
-      toast.error(`${leftUsername} has left.`);
-      setActiveChat(prev => (prev && prev.username === leftUsername ? null : prev));
-      setUsers((prevUsers) => prevUsers.filter(user => user.username !== leftUsername));
-    });
-
-    // --- CRITICAL FIX: Announce that the current user has joined ---
+    // Emit newUser event when component mounts or user reconnects
     socket.emit('newUser', currentUser);
+    socket.on('connect', () => {
+      socket.emit('newUser', currentUser);
+    });
 
-    // Cleanup function
+    // Listen for the full user list
+    socket.on('userList', (allUsers) => {
+      setUsers(allUsers);
+    });
+
+    // Listen for a single new user joining
+    socket.on('userJoined', (newUser) => {
+        if (newUser.username !== currentUser && !announcedUsers.current.has(newUser.username)) {
+            toast.success(`${newUser.username} has joined!`);
+            announcedUsers.current.add(newUser.username);
+        }
+    });
+
     return () => {
+      socket.off('connect');
       socket.off('userList');
       socket.off('userJoined');
-      socket.off('userLeft');
     };
-  }, [currentUser, navigate, setActiveChat]);
+  }, [currentUser, navigate]);
 
   const handleSignOut = () => {
     sessionStorage.removeItem('username');
     socket.disconnect();
-    socket.connect();
     navigate('/');
+    // Reconnect for the next user who logs in on this client
+    socket.connect();
   };
 
   return (
@@ -60,9 +60,9 @@ const ChatSidebar = ({ setActiveChat }) => {
           .map((user) => (
             <li
               key={user.id}
-              className="p-4 hover:bg-gray-700 cursor-pointer"
-              // IMPROVEMENT: Pass the whole user object on click
-              onClick={() => setActiveChat(user)}
+              className={`p-4 cursor-pointer ${activeChat === user.username ? 'bg-gray-600' : 'hover:bg-gray-700'}`}
+              // FIX: Pass the username string, not the whole object
+              onClick={() => setActiveChat(user.username)}
             >
               {user.username}
             </li>

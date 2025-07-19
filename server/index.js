@@ -1,3 +1,5 @@
+require('dotenv').config();
+
 const express = require('express');
 const http = require('http');
 const { Server } = require("socket.io");
@@ -5,13 +7,16 @@ const cors = require('cors');
 const mongoose = require('mongoose');
 
 const app = express();
-app.use(cors());
 
-mongoose.connect(process.env.MONGO_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-}).then(() => console.log('MongoDB connected'))
-  .catch(err => console.error('MongoDB connection error:', err));
+const frontendURL = process.env.FRONTEND_URL;
+app.use(cors({ origin: frontendURL }));
+
+const mongoURI = process.env.MONGO_URI;
+
+mongoose.connect(mongoURI)
+  .then(() => console.log("MongoDB connected successfully."))
+  .catch(err => console.error("MongoDB connection error:", err));
+
 
 const messageSchema = new mongoose.Schema({
   text: String,
@@ -23,9 +28,10 @@ const messageSchema = new mongoose.Schema({
 const Message = mongoose.model('Message', messageSchema);
 
 const server = http.createServer(app);
+
 const io = new Server(server, {
   cors: {
-    origin: process.env.FRONTEND_URL || "http://localhost:3000",
+    origin: frontendURL,
     methods: ["GET", "POST"],
   },
 });
@@ -36,19 +42,12 @@ io.on('connection', (socket) => {
   console.log(`A user connected: ${socket.id}`);
 
   socket.on('newUser', (username) => {
-    const newUser = { id: socket.id, username };
-    let isNew = false;
-
-    if (!users.some(u => u.username === username)) {
+    if (username && !users.some(u => u.username === username)) {
+      const newUser = { id: socket.id, username };
       users.push(newUser);
-      isNew = true;
+      console.log(`${username} has joined the chat`);
     }
-
-    socket.emit('userList', users);
-
-    if (isNew) {
-      socket.broadcast.emit('userJoined', newUser);
-    }
+    io.emit('userList', users);
   });
 
   socket.on('getPrivateMessages', async ({ user1, user2 }) => {
@@ -95,25 +94,15 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on("call-user", ({ to, from, signal }) => {
-    io.to(to).emit("hey", { signal, from });
-  });
-
-  socket.on("answer-call", ({ to, signal }) => {
-    io.to(to).emit("call-accepted", signal);
-  });
-
   socket.on('disconnect', () => {
     const disconnectedUser = users.find(user => user.id === socket.id);
+
     if (disconnectedUser) {
+      console.log(`${disconnectedUser.username} disconnected`);
       users = users.filter(user => user.id !== socket.id);
-      io.emit('userLeft', disconnectedUser.username);
+      io.emit('userList', users);
     }
   });
-});
-
-app.get('/', (req, res) => {
-  res.send('Chat backend is running!');
 });
 
 const PORT = process.env.PORT || 4000;
