@@ -13,20 +13,20 @@ const ChatFooter = ({ activeChat }) => {
     e.preventDefault();
     if (message.trim() && activeChat) {
       const username = sessionStorage.getItem('username');
-      const messageData = { text: message, sender: username, recipient: activeChat };
+      const messageData = { text: message, sender: username, recipient: activeChat?.username };
       socket.emit('sendPrivateMessage', messageData);
       setMessage('');
     }
   };
-  
+
   const handleTyping = (e) => {
     setMessage(e.target.value);
     if (!typingTimeoutRef.current) {
-      socket.emit('typing', { sender: sessionStorage.getItem('username'), recipient: activeChat });
+      socket.emit('typing', { sender: sessionStorage.getItem('username'), recipient: activeChat?.username });
     }
     clearTimeout(typingTimeoutRef.current);
     typingTimeoutRef.current = setTimeout(() => {
-      socket.emit('stopTyping', { sender: sessionStorage.getItem('username'), recipient: activeChat });
+      socket.emit('stopTyping', { sender: sessionStorage.getItem('username'), recipient: activeChat?.username });
       typingTimeoutRef.current = null;
     }, 2000);
   };
@@ -36,7 +36,7 @@ const ChatFooter = ({ activeChat }) => {
       <form onSubmit={handleSendMessage} className="flex">
         <input
           type="text"
-          placeholder={activeChat ? `Message ${activeChat}` : 'Select a user to message'}
+          placeholder={activeChat ? `Message ${activeChat.username}` : 'Select a user to message'}
           className="flex-grow p-2 border border-gray-300 rounded-l-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
           value={message}
           onChange={handleTyping}
