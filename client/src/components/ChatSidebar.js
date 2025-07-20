@@ -1,58 +1,19 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import socket from '../socket';
-import { toast } from 'react-toastify';
 
-const ChatSidebar = ({ setActiveChat, activeChat }) => {
-  const [users, setUsers] = useState([]);
+const ChatSidebar = ({ users, currentUser, setActiveChat, activeChat }) => {
   const navigate = useNavigate();
-  const currentUser = sessionStorage.getItem('username');
-  const announcedUsers = useRef(new Set());
-
-  useEffect(() => {
-    if (!currentUser) {
-      navigate('/');
-      return;
-    }
-
-    const handleConnect = () => {
-      console.log("🔗 Connected to socket with id:", socket.id);
-      socket.emit('newUser', currentUser);
-    };
-
-    const handleUserList = (allUsers) => {
-      setUsers(allUsers);
-    };
-
-    const handleUserJoined = (newUser) => {
-      if (newUser.username !== currentUser && !announcedUsers.current.has(newUser.username)) {
-        toast.success(`${newUser.username} has joined!`);
-        announcedUsers.current.add(newUser.username);
-      }
-    };
-
-    socket.on('connect', handleConnect);
-    socket.on('userList', handleUserList);
-    socket.on('userJoined', handleUserJoined);
-
-    // In case already connected, emit immediately
-    if (socket.connected) {
-      handleConnect();
-    }
-
-    return () => {
-      socket.off('connect', handleConnect);
-      socket.off('userList', handleUserList);
-      socket.off('userJoined', handleUserJoined);
-    };
-  }, [currentUser, navigate]);
 
   const handleSignOut = () => {
     sessionStorage.removeItem('username');
     socket.disconnect();
     navigate('/');
-    socket.connect(); // Reconnect after navigating away
+    socket.connect();
   };
+
+  // --- FINAL FIX: Ismein se saara useEffect aur state hata diya gaya hai ---
+  // Ye ab props par depend karta hai
 
   return (
     <div className="w-1/4 bg-gray-800 text-white flex flex-col">
@@ -65,8 +26,9 @@ const ChatSidebar = ({ setActiveChat, activeChat }) => {
           .map((user) => (
             <li
               key={user.id}
-              className={`p-4 cursor-pointer ${activeChat === user.username ? 'bg-gray-600' : 'hover:bg-gray-700'}`}
-              onClick={() => setActiveChat(user.username)}
+              // --- FINAL FIX: onClick ab poora user object set karega ---
+              className={`p-4 cursor-pointer ${activeChat?.id === user.id ? 'bg-gray-600' : 'hover:bg-gray-700'}`}
+              onClick={() => setActiveChat(user)}
             >
               {user.username}
             </li>

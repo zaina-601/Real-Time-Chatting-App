@@ -9,27 +9,26 @@ const ChatFooter = ({ activeChat }) => {
     setMessage('');
   }, [activeChat]);
 
-  const handleSendMessage = e => {
+  const handleSendMessage = (e) => {
     e.preventDefault();
-    if (!message.trim() || !activeChat) return;
-    const sender = sessionStorage.getItem('username');
-    console.log("➤ Emitting sendPrivateMessage:", { text: message, sender, recipient: activeChat });
-    socket.emit('sendPrivateMessage', { text: message, sender, recipient: activeChat });
-    setMessage('');
+    if (message.trim() && activeChat) {
+      const username = sessionStorage.getItem('username');
+      const messageData = { text: message, sender: username, recipient: activeChat };
+      socket.emit('sendPrivateMessage', messageData);
+      setMessage('');
+    }
   };
-
-  const handleTyping = e => {
+  
+  const handleTyping = (e) => {
     setMessage(e.target.value);
-    const sender = sessionStorage.getItem('username');
     if (!typingTimeoutRef.current) {
-      console.log("… Typing start");
-      socket.emit('typing', { sender, recipient: activeChat });
+      socket.emit('typing', { sender: sessionStorage.getItem('username'), recipient: activeChat });
     }
     clearTimeout(typingTimeoutRef.current);
     typingTimeoutRef.current = setTimeout(() => {
-      socket.emit('stopTyping', { sender, recipient: activeChat });
+      socket.emit('stopTyping', { sender: sessionStorage.getItem('username'), recipient: activeChat });
       typingTimeoutRef.current = null;
-    }, 1500);
+    }, 2000);
   };
 
   return (
@@ -37,13 +36,17 @@ const ChatFooter = ({ activeChat }) => {
       <form onSubmit={handleSendMessage} className="flex">
         <input
           type="text"
-          placeholder={activeChat ? `Message ${activeChat}` : 'Select a chat'}
-          className="flex-grow p-2"
+          placeholder={activeChat ? `Message ${activeChat}` : 'Select a user to message'}
+          className="flex-grow p-2 border border-gray-300 rounded-l-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
           value={message}
           onChange={handleTyping}
           disabled={!activeChat}
         />
-        <button type="submit" disabled={!message.trim()} className="bg-blue-500 text-white px-4">
+        <button
+          type="submit"
+          className="bg-blue-500 text-white p-2 rounded-r-lg hover:bg-blue-600 disabled:bg-gray-400"
+          disabled={!activeChat || !message.trim()}
+        >
           Send
         </button>
       </form>

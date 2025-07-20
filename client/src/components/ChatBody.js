@@ -1,76 +1,81 @@
 import React, { useState, useEffect, useRef } from 'react';
 import socket from '../socket';
-import { toast } from 'react-toastify';
+import { ToastContainer, toast } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
 
 const ChatBody = ({ activeChat }) => {
   const [messages, setMessages] = useState([]);
   const [typingUser, setTypingUser] = useState(null);
-  const lastRef = useRef(null);
+  const lastMessageRef = useRef(null);
   const currentUser = sessionStorage.getItem('username');
 
   useEffect(() => {
     setMessages([]);
     setTypingUser(null);
-    if (!activeChat) return;
-    console.log("📦 Requesting history", currentUser, activeChat);
-    socket.emit('getPrivateMessages', { user1: currentUser, user2: activeChat });
-  }, [activeChat]);
+    if (activeChat) {
+      socket.emit('getPrivateMessages', { user1: currentUser, user2: activeChat });
+    }
+  }, [activeChat, currentUser]);
 
   useEffect(() => {
-    const onPrivate = data => {
-      console.log("⬅️ receivePrivateMessage:", data);
-      const isRelevant =
+    const handlePrivateMessage = (data) => {
+      const isForCurrentChat =
         (data.sender === currentUser && data.recipient === activeChat) ||
         (data.sender === activeChat && data.recipient === currentUser);
 
-      if (isRelevant) {
-        setMessages(prev => [...prev, data]);
+      if (isForCurrentChat) {
+        setMessages((prevMessages) => [...prevMessages, data]);
         setTypingUser(null);
       } else if (data.sender !== currentUser) {
         toast.info(`New message from ${data.sender}`);
       }
     };
 
-    const onHistory = history => {
-      console.log("📜 privateMessages:", history);
-      setMessages(history);
+    const handleUserTyping = (sender) => {
+      if (sender === activeChat) setTypingUser(sender);
     };
 
-    const onTyping = user => activeChat === user && setTypingUser(user);
-    const onStop = user => activeChat === user && setTypingUser(null);
+    const handleUserStoppedTyping = (sender) => {
+      if (sender === activeChat) setTypingUser(null);
+    };
 
-    socket.on('receivePrivateMessage', onPrivate);
-    socket.on('privateMessages', onHistory);
-    socket.on('userTyping', onTyping);
-    socket.on('userStoppedTyping', onStop);
+    socket.on('privateMessages', (history) => setMessages(history));
+    socket.on('receivePrivateMessage', handlePrivateMessage);
+    socket.on('userTyping', handleUserTyping);
+    socket.on('userStoppedTyping', handleUserStoppedTyping);
 
     return () => {
-      socket.off('receivePrivateMessage', onPrivate);
-      socket.off('privateMessages', onHistory);
-      socket.off('userTyping', onTyping);
-      socket.off('userStoppedTyping', onStop);
+      socket.off('privateMessages');
+      socket.off('receivePrivateMessage', handlePrivateMessage);
+      socket.off('userTyping', handleUserTyping);
+      socket.off('userStoppedTyping', handleUserStoppedTyping);
     };
   }, [activeChat, currentUser]);
 
-  useEffect(() => lastRef.current?.scrollIntoView({ behavior: 'smooth' }), [messages]);
+  useEffect(() => {
+    lastMessageRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex-grow overflow-y-auto p-4 bg-gray-100">
-        {messages.map((m, i) => (
-          <div key={i} className={`mb-2 flex ${m.sender === currentUser ? 'justify-end' : 'justify-start'}`}>
-            <div className={`p-2 rounded ${m.sender === currentUser ? 'bg-blue-500 text-white' : 'bg-white'}`}>
-              {m.sender !== currentUser && <strong>{m.sender}</strong>}
-              <div>{m.text}</div>
-              <small>{new Date(m.timestamp).toLocaleTimeString()}</small>
-            </div>
-          </div>
-        ))}
-        <div ref={lastRef} />
-      </div>
-      <div className="p-2 text-sm italic text-gray-500">
-        {typingUser && `${typingUser} is typing…`}
-      </div>
+    <div className="flex flex-col h-full overflow-hidden">
+        <div className="flex-grow p-4 overflow-y-auto bg-gray-100">
+            <ToastContainer position="top-right" autoClose={3000} />
+            {messages.map((msg, index) => (
+                <div key={msg._id || index} className={`mb-4 flex ${msg.sender === currentUser ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`p-3 rounded-lg max-w-md ${msg.sender === currentUser ? 'bg-blue-500 text-white' : 'bg-white shadow'}`}>
+                        {msg.sender !== currentUser && <p className="font-bold text-sm text-blue-600">{msg.sender}</p>}
+                        <p>{msg.text}</p>
+                        <p className={`text-xs mt-1 opacity-70 text-right ${msg.sender === currentUser ? 'text-blue-200' : 'text-gray-500'}`}>
+                            {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                    </div>
+                </div>
+            ))}
+            <div ref={lastMessageRef} />
+        </div>
+        <div className="h-6 px-4 text-gray-500 italic">
+            {typingUser && `${typingUser} is typing...`}
+        </div>
     </div>
   );
 };
