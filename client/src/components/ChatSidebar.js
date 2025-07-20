@@ -1,48 +1,9 @@
-// ✅ ChatSidebar.js
-import React, { useState, useEffect, useRef } from 'react';
+import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import socket from '../socket';
-import { toast } from 'react-toastify';
 
-const ChatSidebar = ({ setActiveChat, activeChat }) => {
-  const [users, setUsers] = useState([]);
+const ChatSidebar = ({ users, currentUser, setActiveChat, activeChat }) => {
   const navigate = useNavigate();
-  const currentUser = sessionStorage.getItem('username');
-  const announcedUsers = useRef(new Set());
-
-  useEffect(() => {
-    if (!currentUser) {
-      navigate('/');
-      return;
-    }
-
-    const handleConnect = () => {
-      socket.emit('newUser', currentUser);
-    };
-
-    if (socket.connected) {
-      handleConnect();
-    }
-
-    socket.on('connect', handleConnect);
-
-    socket.on('userList', (allUsers) => {
-      setUsers(allUsers);
-    });
-
-    socket.on('userJoined', (newUser) => {
-      if (newUser.username !== currentUser && !announcedUsers.current.has(newUser.username)) {
-        toast.success(`${newUser.username} has joined!`);
-        announcedUsers.current.add(newUser.username);
-      }
-    });
-
-    return () => {
-      socket.off('connect', handleConnect);
-      socket.off('userList');
-      socket.off('userJoined');
-    };
-  }, [currentUser, navigate]);
 
   const handleSignOut = () => {
     sessionStorage.removeItem('username');
@@ -62,8 +23,8 @@ const ChatSidebar = ({ setActiveChat, activeChat }) => {
           .map((user) => (
             <li
               key={user.id}
-              className={`p-4 cursor-pointer ${activeChat?.username === user.username ? 'bg-gray-600' : 'hover:bg-gray-700'}`}
-              onClick={() => setActiveChat(user)}
+              className={`p-4 cursor-pointer ${activeChat === user.username ? 'bg-gray-600' : 'hover:bg-gray-700'}`}
+              onClick={() => setActiveChat(user.username)} // Yahan username set karein
             >
               {user.username}
             </li>

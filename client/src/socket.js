@@ -1,16 +1,9 @@
 import { io } from 'socket.io-client';
 
-const SOCKET_URL = process.env.REACT_APP_SOCKET_URL || 'http://localhost:4000';
+const SOCKET_URL = 'https://daring-courtesy-production-7412.up.railway.app';
 
-// Connect with socket
 const socket = io(SOCKET_URL, {
-  transports: ['websocket'], // optional, ensures best transport
-  autoConnect: true,
-});
-
-// Optional: Debug all events
-socket.onAny((event, ...args) => {
-  console.log(`🔧 SOCKET EVENT: ${event}`, args);
+  transports: ['websocket'],
 });
 
 export default socket;
