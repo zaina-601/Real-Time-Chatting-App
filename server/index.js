@@ -1,5 +1,3 @@
-// require('dotenv').config(); // Disabled for testing
-
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -44,16 +42,32 @@ io.on('connection', (socket) => {
   console.log(`🔌 User connected: ${socket.id}`);
 
   socket.on('newUser', (username) => {
+    console.log(`👤 New user joining: ${username}`);
+    
     if (username && !users.some(u => u.username === username)) {
       const newUser = { id: socket.id, username };
       users.push(newUser);
+      console.log(`✅ User added: ${username}, Total users: ${users.length}`);
       socket.broadcast.emit('userJoined', newUser);
+    } else if (username) {
+      // Update existing user's socket ID
+      const existingUser = users.find(u => u.username === username);
+      if (existingUser) {
+        existingUser.id = socket.id;
+        console.log(`🔄 Updated socket ID for user: ${username}`);
+      }
     }
+    
+    // Send updated user list to all clients
     io.emit('userList', users);
+    
+    // Send confirmation back to the joining user
+    socket.emit('userJoinConfirmed', { username, users });
   });
 
-  // --- FINAL FIX #1: Purane messages ko plain object mein convert karein ---
   socket.on('getPrivateMessages', async ({ user1, user2 }) => {
+    console.log(`📨 Fetching messages between ${user1} and ${user2}`);
+    
     try {
       const messageDocs = await Message.find({
         $or: [
@@ -62,33 +76,51 @@ io.on('connection', (socket) => {
         ]
       }).sort({ timestamp: 1 });
 
-      const messages = messageDocs.map(doc => doc.toObject()); // Convert each doc
+      const messages = messageDocs.map(doc => doc.toObject());
+      console.log(`📤 Sending ${messages.length} messages to ${socket.id}`);
       socket.emit('privateMessages', messages);
     } catch (err) {
       console.error("⚠️ Error fetching messages:", err);
+      socket.emit('error', { message: 'Failed to fetch messages' });
     }
   });
 
-  // --- FINAL FIX #2: Naye message ko plain object mein convert karein ---
   socket.on('sendPrivateMessage', async ({ text, sender, recipient }) => {
-    if (!text || !sender || !recipient) return;
+    console.log(`💬 Message from ${sender} to ${recipient}: ${text}`);
+    
+    if (!text || !sender || !recipient) {
+      console.log("❌ Invalid message data");
+      socket.emit('error', { message: 'Invalid message data' });
+      return;
+    }
 
     try {
       const newMessage = new Message({ text, sender, recipient });
       const savedMessage = await newMessage.save();
-      const messagePayload = savedMessage.toObject(); // Convert to plain object
+      const messagePayload = savedMessage.toObject();
+      
+      console.log(`✅ Message saved with ID: ${savedMessage._id}`);
 
+      // Find recipient socket
       const recipientSocket = users.find(user => user.username === recipient);
+      
       if (recipientSocket) {
+        console.log(`📤 Sending to recipient ${recipient} (${recipientSocket.id})`);
         io.to(recipientSocket.id).emit('receivePrivateMessage', messagePayload);
+      } else {
+        console.log(`⚠️ Recipient ${recipient} not found online`);
       }
+      
+      // Always send back to sender for confirmation
+      console.log(`📤 Confirming message to sender ${sender}`);
       socket.emit('receivePrivateMessage', messagePayload);
+      
     } catch (err) {
       console.error("⚠️ Error saving message:", err);
+      socket.emit('error', { message: 'Failed to send message' });
     }
   });
   
-  // Baaki ke events (typing, disconnect) theek hain
   socket.on('typing', ({ sender, recipient }) => {
     const recipientSocket = users.find(user => user.username === recipient);
     if (recipientSocket) {
@@ -109,6 +141,7 @@ io.on('connection', (socket) => {
       users = users.filter(u => u.id !== socket.id);
       io.emit('userList', users);
       console.log(`❌ User disconnected: ${disconnectedUser.username}`);
+      socket.broadcast.emit('userLeft', disconnectedUser);
     }
   });
 });
