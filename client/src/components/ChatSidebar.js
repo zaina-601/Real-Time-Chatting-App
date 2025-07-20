@@ -12,9 +12,6 @@ const ChatSidebar = ({ users, currentUser, setActiveChat, activeChat }) => {
     socket.connect();
   };
 
-  // --- FINAL FIX: Ismein se saara useEffect aur state hata diya gaya hai ---
-  // Ye ab props par depend karta hai
-
   return (
     <div className="w-1/4 bg-gray-800 text-white flex flex-col">
       <div className="p-4 border-b border-gray-700">
@@ -26,9 +23,8 @@ const ChatSidebar = ({ users, currentUser, setActiveChat, activeChat }) => {
           .map((user) => (
             <li
               key={user.id}
-              // --- FINAL FIX: onClick ab poora user object set karega ---
-              className={`p-4 cursor-pointer ${activeChat?.id === user.id ? 'bg-gray-600' : 'hover:bg-gray-700'}`}
-              onClick={() => setActiveChat(user)}
+              className={`p-4 cursor-pointer ${activeChat === user.username ? 'bg-gray-600' : 'hover:bg-gray-700'}`}
+              onClick={() => setActiveChat(user.username)} // Yahan username set karein
             >
               {user.username}
             </li>

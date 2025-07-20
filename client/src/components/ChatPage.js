@@ -1,18 +1,17 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import socket from '../socket';
-import { toast } from 'react-toastify';
 
-import ChatSidebar from './ChatSidebar';
-import ChatBody from './ChatBody';
-import ChatFooter from './ChatFooter';
+import ChatSidebar from '../components/ChatSidebar';
+import ChatBody from '../components/ChatBody';
+import ChatFooter from '../components/ChatFooter';
+import { toast } from 'react-toastify';
 
 const ChatPage = () => {
   const [users, setUsers] = useState([]);
-  const [activeChat, setActiveChat] = useState(null); // Will be a user object: {id, username}
+  const [activeChat, setActiveChat] = useState(null); // Will store the username string
   const navigate = useNavigate();
   const currentUser = sessionStorage.getItem('username');
-  const announcedUsers = useRef(new Set());
 
   useEffect(() => {
     if (!currentUser) {
@@ -20,7 +19,7 @@ const ChatPage = () => {
       return;
     }
 
-    // --- FINAL FIX: State management sirf yahan hoga ---
+    // Sirf yahan par socket events ko manage karein
     const handleConnect = () => socket.emit('newUser', currentUser);
 
     if (socket.connected) {
@@ -33,12 +32,12 @@ const ChatPage = () => {
     });
 
     socket.on('userJoined', (newUser) => {
-      if (newUser.username !== currentUser && !announcedUsers.current.has(newUser.username)) {
+      if (newUser.username !== currentUser) {
         toast.success(`${newUser.username} has joined!`);
-        announcedUsers.current.add(newUser.username);
       }
     });
 
+    // Cleanup function
     return () => {
       socket.off('connect', handleConnect);
       socket.off('userList');
@@ -48,7 +47,6 @@ const ChatPage = () => {
 
   return (
     <div className="flex h-screen font-sans">
-      {/* --- FINAL FIX: Sidebar ko props de rahe hain, wo khud state manage nahi karega --- */}
       <ChatSidebar
         users={users}
         currentUser={currentUser}
@@ -57,11 +55,10 @@ const ChatPage = () => {
       />
       <div className="flex flex-col flex-grow">
         <header className="bg-gray-700 text-white p-4 text-xl font-bold">
-          {activeChat ? `Chat with ${activeChat.username}` : 'Select a user to chat'}
+          {activeChat ? `Chat with ${activeChat}` : 'Select a user to chat'}
         </header>
-
-        <ChatBody activeChat={activeChat?.username || null} />
-        <ChatFooter activeChat={activeChat?.username || null} />
+        <ChatBody activeChat={activeChat} />
+        <ChatFooter activeChat={activeChat} />
       </div>
     </div>
   );
