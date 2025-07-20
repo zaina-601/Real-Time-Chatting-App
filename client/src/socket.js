@@ -2,12 +2,10 @@ import { io } from 'socket.io-client';
 
 const SOCKET_URL = 'https://daring-courtesy-production-7412.up.railway.app';
 
-// --- FINAL FIX: Saaf aur simple options ---
+// --- FINAL FIX: Saaf aur simple options, koi extra cheez nahi ---
 const socket = io(SOCKET_URL, {
   transports: ['websocket', 'polling'], // Pehle WebSocket try karega
   reconnection: true,
-  reconnectionAttempts: 5,
-  reconnectionDelay: 1000,
 });
 
 // Zaroori event listeners
