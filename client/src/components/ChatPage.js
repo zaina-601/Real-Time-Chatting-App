@@ -10,11 +10,17 @@ import AudioCall from '../components/AudioCall';
 import { toast } from 'react-toastify';
 
 const iceServers = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-  ],
+  iceServers: [ { urls: 'stun:stun.l.google.com:19302' } ],
 };
+
+function formatDuration(startTime) {
+  if (!startTime) return "less than a second";
+  const durationSeconds = Math.floor((Date.now() - startTime) / 1000);
+  const minutes = Math.floor(durationSeconds / 60);
+  const seconds = durationSeconds % 60;
+  if (minutes > 0) return `${minutes} minute(s) ${seconds} second(s)`;
+  return `${seconds} second(s)`;
+}
 
 const ChatPage = () => {
   const [users, setUsers] = useState([]);
@@ -23,7 +29,6 @@ const ChatPage = () => {
   const navigate = useNavigate();
   const currentUser = sessionStorage.getItem('username');
 
-  // --- Call States ---
   const [isCalling, setIsCalling] = useState(false);
   const [isCallActive, setIsCallActive] = useState(false);
   const [incomingCall, setIncomingCall] = useState(null);
@@ -31,6 +36,7 @@ const ChatPage = () => {
   const [remoteStream, setRemoteStream] = useState(null);
   const [callType, setCallType] = useState(null);
   const [isMuted, setIsMuted] = useState(false);
+  const [callStartTime, setCallStartTime] = useState(null);
   
   const peerConnection = useRef();
   const myVideo = useRef();
@@ -56,8 +62,10 @@ const ChatPage = () => {
     setIncomingCall(null);
     setCallType(null);
     setIsMuted(false);
+    setCallStartTime(null);
     iceCandidateQueue.current = [];
   }, []);
+
   useEffect(() => {
     if (!currentUser) navigate('/');
 
@@ -76,8 +84,7 @@ const ChatPage = () => {
         await peerConnection.current.setRemoteDescription(new RTCSessionDescription(answer));
         iceCandidateQueue.current.forEach(candidate => peerConnection.current.addIceCandidate(candidate));
         iceCandidateQueue.current = [];
-        setIsCalling(false);
-        setIsCallActive(true);
+        handleCallConnected();
       }
     };
     const handleIceCandidate = ({ candidate }) => {
@@ -114,6 +121,30 @@ const ChatPage = () => {
       cleanupCall();
     };
   }, [currentUser, navigate, cleanupCall]);
+
+  const logCallEvent = (eventType, duration = null) => {
+    const recipient = activeChat || (incomingCall ? incomingCall.from.username : null);
+    if (!recipient || !callType) return;
+
+    const eventText = eventType === 'call_started'
+      ? `${callType.charAt(0).toUpperCase() + callType.slice(1)} call started`
+      : `${callType.charAt(0).toUpperCase() + callType.slice(1)} call ended`;
+
+    socket.emit('log-call-event', {
+      sender: currentUser,
+      recipient: recipient,
+      eventType: eventType,
+      duration: duration,
+      text: eventText,
+    });
+  };
+
+  const handleCallConnected = () => {
+    setIsCalling(false);
+    setIsCallActive(true);
+    setCallStartTime(Date.now());
+    logCallEvent('call_started');
+  };
 
   const getMedia = (type) => {
     const constraints = type === 'video' 
@@ -173,14 +204,17 @@ const ChatPage = () => {
         const answer = await peerConnection.current.createAnswer();
         await peerConnection.current.setLocalDescription(answer);
         socket.emit('call-accepted', { to: incomingCall.from, answer });
-        setIsCallActive(true);
         setIncomingCall(null);
+        handleCallConnected(); 
     } catch (error) {
         handleGetUserMediaError(error);
     }
   };
   
   const endCall = () => {
+    const durationString = formatDuration(callStartTime);
+    logCallEvent('call_ended', durationString);
+
     const recipientUsername = activeChat || (incomingCall ? incomingCall.from.username : null);
     if(recipientUsername) {
       socket.emit('end-call', { to: recipientUsername });
@@ -202,23 +236,6 @@ const ChatPage = () => {
 
   const handleGetUserMediaError = (error) => {
     console.error("getUserMedia error:", error.name, error.message);
-    switch(error.name) {
-        case 'NotFoundError':
-            toast.error("No camera or microphone found on this device.");
-            break;
-        case 'NotAllowedError':
-            toast.error("You denied permission to use the camera and microphone.");
-            break;
-        case 'NotReadableError':
-            toast.error("Your camera or microphone is currently in use by another application.");
-            break;
-        case 'SecurityError':
-            toast.error("Could not access media. Make sure you are on a secure (HTTPS) connection.");
-            break;
-        default:
-            toast.error("Could not access your camera or microphone.");
-            break;
-    }
     cleanupCall();
   };
 
@@ -249,6 +266,7 @@ const ChatPage = () => {
           isMuted={isMuted}
           onToggleMute={handleToggleMute}
           onEndCall={endCall}
+          theirAudio={theirVideo} 
         />
       )}
       

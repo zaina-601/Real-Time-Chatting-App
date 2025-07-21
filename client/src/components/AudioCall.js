@@ -1,21 +1,24 @@
 import React from 'react';
 
-const AudioCall = ({ activeChat, isMuted, onToggleMute, onEndCall }) => {
+// MODIFIED: Added `theirAudio` prop to receive the ref
+const AudioCall = ({ activeChat, onToggleMute, isMuted, onEndCall, theirAudio }) => {
   return (
     <div className="fixed inset-0 bg-gray-800 flex flex-col items-center justify-center z-50 text-white">
+      {/* 
+        CRITICAL FIX: This invisible audio element plays the other person's voice.
+        It must be present for the audio to be heard.
+      */}
+      <audio ref={theirAudio} autoPlay playsInline />
+
       <div className="flex flex-col items-center gap-6">
-        {/* User Avatar */}
-        <div className="w-40 h-40 bg-indigo-500 rounded-full flex items-center justify-center">
-          <span className="text-6xl font-bold">{activeChat.charAt(0).toUpperCase()}</span>
+        <div className="w-40 h-40 bg-indigo-500 rounded-full flex items-center justify-center border-4 border-indigo-400">
+          <span className="text-6xl font-bold">{activeChat ? activeChat.charAt(0).toUpperCase() : '?'}</span>
         </div>
-        
         <div className="text-center">
           <p className="text-3xl font-semibold">{activeChat}</p>
           <p className="text-lg text-gray-300 mt-2">Audio Call Connected...</p>
         </div>
       </div>
-
-      {/* Controls */}
       <div className="absolute bottom-10 flex items-center gap-8">
         <button
           onClick={onToggleMute}
