@@ -55,7 +55,7 @@ app.get('/test-db', async (req, res) => {
 });
 
 // Use environment variable for MongoDB URI
-const mongoURI = process.env.MONGODB_URI || "mongodb+srv://225186:8536675m@cluster0.002gnfa.mongodb.net/chatApp?retryWrites=true&w=majority&appName=Cluster0";
+const mongoURI = process.env.MONGODB_URI || "mongodb+srv://225186:8536675m@cluster0.002gnfa.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
 
 if (!process.env.MONGODB_URI) {
   console.warn("⚠️ MONGODB_URI environment variable not set. Using hardcoded fallback URI.");
