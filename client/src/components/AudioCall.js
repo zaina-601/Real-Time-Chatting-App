@@ -1,13 +1,16 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 
-// MODIFIED: Added `theirAudio` prop to receive the ref
-const AudioCall = ({ activeChat, onToggleMute, isMuted, onEndCall, theirAudio }) => {
+const AudioCall = ({ activeChat, onToggleMute, isMuted, onEndCall, theirAudio, remoteStream }) => {
+  
+  useEffect(() => {
+    if (theirAudio.current && remoteStream) {
+      theirAudio.current.srcObject = remoteStream;
+    }
+  }, [remoteStream, theirAudio]);
+
   return (
     <div className="fixed inset-0 bg-gray-800 flex flex-col items-center justify-center z-50 text-white">
-      {/* 
-        CRITICAL FIX: This invisible audio element plays the other person's voice.
-        It must be present for the audio to be heard.
-      */}
+      {/* This invisible audio element plays the other person's voice. */}
       <audio ref={theirAudio} autoPlay playsInline />
 
       <div className="flex flex-col items-center gap-6">
