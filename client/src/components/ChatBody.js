@@ -439,7 +439,7 @@ const ChatBody = ({ activeChat }) => {
       return (
         <div className="text-center py-8">
           <div className="text-gray-500">
-            <div className="text-lg font-semibold mb-2">📝 No Messages</div>
+            <div className="text-lg font-semibold mb-2">No Messages</div>
             <div className="text-sm">Start the conversation with {activeChat}!</div>
           </div>
         </div>
