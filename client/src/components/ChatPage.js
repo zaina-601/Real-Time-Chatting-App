@@ -5,10 +5,9 @@ import socket from '../socket';
 import ChatSidebar from '../components/ChatSidebar';
 import ChatBody from '../components/ChatBody';
 import ChatFooter from '../components/ChatFooter';
-import VideoCall from '../components/VideoCall'; // Import the new component
+import VideoCall from '../components/VideoCall';
 import { toast } from 'react-toastify';
 
-// Use public STUN servers for NAT traversal
 const iceServers = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
@@ -23,7 +22,6 @@ const ChatPage = () => {
   const navigate = useNavigate();
   const currentUser = sessionStorage.getItem('username');
 
-  // --- NEW VIDEO CALL STATES ---
   const [isCalling, setIsCalling] = useState(false);
   const [isCallActive, setIsCallActive] = useState(false);
   const [incomingCall, setIncomingCall] = useState(null);
@@ -34,6 +32,9 @@ const ChatPage = () => {
   const myVideo = useRef();
   const theirVideo = useRef();
   const callData = useRef({});
+  
+  // ❗ FIX 1 of 3: Create a ref to queue early ICE candidates
+  const iceCandidateQueue = useRef([]);
 
   const cleanupCall = useCallback(() => {
     console.log("Cleaning up all call resources...");
@@ -53,16 +54,15 @@ const ChatPage = () => {
     setIsCalling(false);
     setIncomingCall(null);
     callData.current = {};
+    iceCandidateQueue.current = []; // Clear the queue on cleanup
   }, [localStream]);
 
-  // Effect for handling all socket events
   useEffect(() => {
     if (!currentUser) {
       navigate('/');
       return;
     }
 
-    // --- Standard Chat Events ---
     const handleConnect = () => {
       setIsConnected(true);
       if (socket.connected) socket.emit('newUser', currentUser);
@@ -70,7 +70,6 @@ const ChatPage = () => {
     const handleDisconnect = () => setIsConnected(false);
     const handleUserList = (allUsers) => setUsers(allUsers);
 
-    // --- WebRTC Signaling Events ---
     const handleIncomingCall = ({ from, offer }) => {
       console.log('Received incoming call from', from);
       callData.current = { from, offer };
@@ -81,14 +80,27 @@ const ChatPage = () => {
       console.log('Call finalized with answer from recipient');
       if (peerConnection.current) {
         await peerConnection.current.setRemoteDescription(new RTCSessionDescription(answer));
+        
+        // ❗ FIX 2 of 3: Process any queued candidates now that the connection is ready
+        iceCandidateQueue.current.forEach(candidate => {
+            peerConnection.current.addIceCandidate(candidate);
+        });
+        iceCandidateQueue.current = []; // Clear the queue
+
         setIsCalling(false);
         setIsCallActive(true);
       }
     };
-
+    
+    // ❗ FIX 3 of 3: Modify the ICE candidate handler to use the queue
     const handleIceCandidate = ({ candidate }) => {
-      if (peerConnection.current && candidate) {
-        peerConnection.current.addIceCandidate(new RTCIceCandidate(candidate));
+      const newIceCandidate = new RTCIceCandidate(candidate);
+      if (peerConnection.current && peerConnection.current.remoteDescription) {
+        // If ready, add candidate immediately
+        peerConnection.current.addIceCandidate(newIceCandidate);
+      } else {
+        // If not ready, push to queue
+        iceCandidateQueue.current.push(newIceCandidate);
       }
     };
 
@@ -97,7 +109,6 @@ const ChatPage = () => {
       cleanupCall();
     };
     
-    // Bind all events
     socket.on('connect', handleConnect);
     socket.on('disconnect', handleDisconnect);
     socket.on('userList', handleUserList);
@@ -108,7 +119,6 @@ const ChatPage = () => {
 
     if (socket.connected) handleConnect();
 
-    // Cleanup function
     return () => {
       socket.off('connect', handleConnect);
       socket.off('disconnect', handleDisconnect);
@@ -117,33 +127,28 @@ const ChatPage = () => {
       socket.off('call-finalized', handleCallFinalized);
       socket.off('ice-candidate', handleIceCandidate);
       socket.off('call-ended', handleCallEnded);
-      cleanupCall(); // Ensure cleanup on component unmount
+      cleanupCall();
     };
   }, [currentUser, navigate, cleanupCall]);
 
   const createPeerConnection = (stream) => {
     peerConnection.current = new RTCPeerConnection(iceServers);
-
-    // Add local stream tracks to the connection
     stream.getTracks().forEach(track => {
       peerConnection.current.addTrack(track, stream);
     });
-
-    // Handle incoming remote stream
     peerConnection.current.ontrack = (event) => {
       setRemoteStream(event.streams[0]);
     };
   };
 
-const handleGetUserMediaError = (error) => {
+  const handleGetUserMediaError = (error) => {
     console.error("getUserMedia error:", error.name, error.message);
-    
     switch(error.name) {
         case 'NotFoundError':
             toast.error("No camera or microphone found on this device.");
             break;
         case 'NotAllowedError':
-            toast.error("You denied permission to use the camera and microphone. Please enable it in your browser settings to make a call.");
+            toast.error("You denied permission to use the camera and microphone.");
             break;
         case 'NotReadableError':
             toast.error("Your camera or microphone is currently in use by another application.");
@@ -152,18 +157,14 @@ const handleGetUserMediaError = (error) => {
             toast.error("Could not access media. Make sure you are on a secure (HTTPS) connection.");
             break;
         default:
-            toast.error("Could not access your camera or microphone due to an unknown error.");
+            toast.error("Could not access your camera or microphone.");
             break;
     }
-    
-    cleanupCall(); // Reset the call state regardless of the error
-};
+    cleanupCall();
+  };
 
-  // This is the updated startCall function in ChatPage.js
-
-const startCall = async () => {
+  const startCall = async () => {
     if (!activeChat) return;
-
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
         setLocalStream(stream);
@@ -175,11 +176,10 @@ const startCall = async () => {
             cleanupCall();
             return;
         }
-        callData.current.recipientId = recipientUser.id;
-
+        
         peerConnection.current.onicecandidate = (event) => {
             if (event.candidate) {
-                socket.emit('ice-candidate', { to: callData.current.recipientId, candidate: event.candidate });
+                socket.emit('ice-candidate', { to: recipientUser.id, candidate: event.candidate });
             }
         };
 
@@ -188,18 +188,13 @@ const startCall = async () => {
         
         socket.emit('call-user', { to: activeChat, from: { id: socket.id, username: currentUser }, offer });
         setIsCalling(true);
-
     } catch (error) {
-        // ✅ Using the new, specific error handler
         handleGetUserMediaError(error);
     }
-};
+  };
 
-// This is the updated answerCall function in ChatPage.js
-
-const answerCall = async () => {
+  const answerCall = async () => {
     if (!incomingCall) return;
-
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
         setLocalStream(stream);
@@ -212,45 +207,21 @@ const answerCall = async () => {
         };
 
         await peerConnection.current.setRemoteDescription(new RTCSessionDescription(callData.current.offer));
+
+        // Process any queued candidates that arrived early
+        iceCandidateQueue.current.forEach(candidate => {
+            peerConnection.current.addIceCandidate(candidate);
+        });
+        iceCandidateQueue.current = []; // Clear queue
+
         const answer = await peerConnection.current.createAnswer();
         await peerConnection.current.setLocalDescription(answer);
 
         socket.emit('call-accepted', { to: incomingCall, answer });
-
         setIsCallActive(true);
         setIncomingCall(null);
     } catch (error) {
-        // ✅ Using the new, specific error handler
         handleGetUserMediaError(error);
-    }
-};
-
-  const answerCall = async () => {
-    if (!incomingCall) return;
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-      setLocalStream(stream);
-      createPeerConnection(stream);
-
-      peerConnection.current.onicecandidate = (event) => {
-        if (event.candidate) {
-          socket.emit('ice-candidate', { to: incomingCall.id, candidate: event.candidate });
-        }
-      };
-
-      await peerConnection.current.setRemoteDescription(new RTCSessionDescription(callData.current.offer));
-      const answer = await peerConnection.current.createAnswer();
-      await peerConnection.current.setLocalDescription(answer);
-
-      socket.emit('call-accepted', { to: incomingCall, answer });
-
-      setIsCallActive(true);
-      setIncomingCall(null);
-    } catch (error) {
-      toast.error('Could not answer call. Please allow access to media devices.');
-      console.error('Error answering call:', error);
-      cleanupCall();
     }
   };
   
@@ -264,18 +235,16 @@ const answerCall = async () => {
 
   return (
     <div className="flex h-screen font-sans bg-gray-100">
-      {/* Incoming Call Notification */}
       {incomingCall && !isCallActive && (
         <div className="absolute top-5 right-5 bg-white p-4 rounded-lg shadow-xl z-50 flex flex-col items-center gap-3 border">
           <p className="font-semibold">{incomingCall.username} is calling...</p>
           <div className="flex gap-4">
             <button onClick={answerCall} className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg">Answer</button>
-            <button onClick={() => setIncomingCall(null)} className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg">Decline</button>
+            <button onClick={() => { setIncomingCall(null); cleanupCall(); }} className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg">Decline</button>
           </div>
         </div>
       )}
 
-      {/* The video call UI */}
       {isCallActive && (
         <VideoCall
           stream={localStream}
