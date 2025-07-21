@@ -23,6 +23,7 @@ const ChatPage = () => {
   const navigate = useNavigate();
   const currentUser = sessionStorage.getItem('username');
 
+  // --- Call States ---
   const [isCalling, setIsCalling] = useState(false);
   const [isCallActive, setIsCallActive] = useState(false);
   const [incomingCall, setIncomingCall] = useState(null);
@@ -42,10 +43,13 @@ const ChatPage = () => {
         peerConnection.current.close();
         peerConnection.current = null;
     }
-    if (localStream) {
-        localStream.getTracks().forEach(track => track.stop());
-    }
-    setLocalStream(null);
+    setLocalStream(currentStream => {
+      if (currentStream) {
+        currentStream.getTracks().forEach(track => track.stop());
+      }
+      return null;
+    });
+
     setRemoteStream(null);
     setIsCallActive(false);
     setIsCalling(false);
@@ -53,8 +57,7 @@ const ChatPage = () => {
     setCallType(null);
     setIsMuted(false);
     iceCandidateQueue.current = [];
-  }, [localStream]);
-
+  }, []);
   useEffect(() => {
     if (!currentUser) navigate('/');
 
@@ -186,12 +189,15 @@ const ChatPage = () => {
   };
 
   const handleToggleMute = () => {
-    if (localStream) {
-      localStream.getAudioTracks().forEach(track => {
-        track.enabled = !track.enabled;
-        setIsMuted(!track.enabled);
-      });
-    }
+    setLocalStream(currentStream => {
+      if (currentStream) {
+        currentStream.getAudioTracks().forEach(track => {
+          track.enabled = !track.enabled;
+          setIsMuted(!track.enabled);
+        });
+      }
+      return currentStream;
+    });
   };
 
   const handleGetUserMediaError = (error) => {
