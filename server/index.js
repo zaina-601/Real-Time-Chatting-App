@@ -92,7 +92,6 @@ io.on('connection', (socket) => {
     const newUser = { id: socket.id, username: cleanUsername };
     users.set(socket.id, newUser);
     io.emit('userList', Array.from(users.values()));
-    socket.emit('userJoinConfirmed', { username: cleanUsername, users: Array.from(users.values()) });
   });
 
   socket.on('getPrivateMessages', async ({ user1, user2 }) => {
@@ -133,11 +132,11 @@ io.on('connection', (socket) => {
     }
   });
 
-  // --- NEW: WebRTC Signaling Events ---
+  // --- WebRTC Signaling Events ---
 
-  // User initiates a call
-  socket.on('call-user', ({ to, from, offer }) => {
-    console.log(`📞 Call attempt from ${from.username} to user ${to}`);
+  // MODIFIED: User initiates a call, now includes callType
+  socket.on('call-user', ({ to, from, offer, callType }) => {
+    console.log(`📞 ${callType} call attempt from ${from.username} to user ${to}`);
     let recipientSocketId = null;
     for (let [socketId, userData] of users.entries()) {
       if (userData.username === to) {
@@ -148,7 +147,8 @@ io.on('connection', (socket) => {
 
     if (recipientSocketId) {
       console.log(`Found recipient ${to} at socket ${recipientSocketId}. Sending 'incoming-call'...`);
-      io.to(recipientSocketId).emit('incoming-call', { from, offer });
+      // Pass the callType to the recipient
+      io.to(recipientSocketId).emit('incoming-call', { from, offer, callType });
     } else {
       socket.emit('call-error', { message: 'User is not online.' });
     }
@@ -180,8 +180,6 @@ io.on('connection', (socket) => {
     }
   });
   
-  // --- END of WebRTC Events ---
-
   socket.on('disconnect', () => {
     console.log(`❌ User disconnected: ${socket.id}`);
     users.delete(socket.id);
@@ -192,7 +190,4 @@ io.on('connection', (socket) => {
 const PORT = process.env.PORT || 4000;
 server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
-  if (!process.env.MONGODB_URI) {
-    console.log("🔴 Server is running WITHOUT a database connection.");
-  }
 });

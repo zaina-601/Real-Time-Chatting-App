@@ -6,6 +6,7 @@ import ChatSidebar from '../components/ChatSidebar';
 import ChatBody from '../components/ChatBody';
 import ChatFooter from '../components/ChatFooter';
 import VideoCall from '../components/VideoCall';
+import AudioCall from '../components/AudioCall';
 import { toast } from 'react-toastify';
 
 const iceServers = {
@@ -22,18 +23,18 @@ const ChatPage = () => {
   const navigate = useNavigate();
   const currentUser = sessionStorage.getItem('username');
 
+  // --- Call States ---
   const [isCalling, setIsCalling] = useState(false);
   const [isCallActive, setIsCallActive] = useState(false);
   const [incomingCall, setIncomingCall] = useState(null);
   const [localStream, setLocalStream] = useState(null);
   const [remoteStream, setRemoteStream] = useState(null);
+  const [callType, setCallType] = useState(null);
+  const [isMuted, setIsMuted] = useState(false);
   
   const peerConnection = useRef();
   const myVideo = useRef();
   const theirVideo = useRef();
-  const callData = useRef({});
-  
-  // ❗ FIX 1 of 3: Create a ref to queue early ICE candidates
   const iceCandidateQueue = useRef([]);
 
   const cleanupCall = useCallback(() => {
@@ -45,23 +46,18 @@ const ChatPage = () => {
     if (localStream) {
         localStream.getTracks().forEach(track => track.stop());
     }
-    if(myVideo.current) myVideo.current.srcObject = null;
-    if(theirVideo.current) theirVideo.current.srcObject = null;
-
     setLocalStream(null);
     setRemoteStream(null);
     setIsCallActive(false);
     setIsCalling(false);
     setIncomingCall(null);
-    callData.current = {};
-    iceCandidateQueue.current = []; // Clear the queue on cleanup
+    setCallType(null);
+    setIsMuted(false);
+    iceCandidateQueue.current = [];
   }, [localStream]);
 
   useEffect(() => {
-    if (!currentUser) {
-      navigate('/');
-      return;
-    }
+    if (!currentUser) navigate('/');
 
     const handleConnect = () => {
       setIsConnected(true);
@@ -70,40 +66,26 @@ const ChatPage = () => {
     const handleDisconnect = () => setIsConnected(false);
     const handleUserList = (allUsers) => setUsers(allUsers);
 
-    const handleIncomingCall = ({ from, offer }) => {
-      console.log('Received incoming call from', from);
-      callData.current = { from, offer };
-      setIncomingCall(from);
+    const handleIncomingCall = ({ from, offer, callType }) => {
+      setIncomingCall({ from, offer, callType });
     };
-
     const handleCallFinalized = async ({ answer }) => {
-      console.log('Call finalized with answer from recipient');
       if (peerConnection.current) {
         await peerConnection.current.setRemoteDescription(new RTCSessionDescription(answer));
-        
-        // ❗ FIX 2 of 3: Process any queued candidates now that the connection is ready
-        iceCandidateQueue.current.forEach(candidate => {
-            peerConnection.current.addIceCandidate(candidate);
-        });
-        iceCandidateQueue.current = []; // Clear the queue
-
+        iceCandidateQueue.current.forEach(candidate => peerConnection.current.addIceCandidate(candidate));
+        iceCandidateQueue.current = [];
         setIsCalling(false);
         setIsCallActive(true);
       }
     };
-    
-    // ❗ FIX 3 of 3: Modify the ICE candidate handler to use the queue
     const handleIceCandidate = ({ candidate }) => {
       const newIceCandidate = new RTCIceCandidate(candidate);
       if (peerConnection.current && peerConnection.current.remoteDescription) {
-        // If ready, add candidate immediately
         peerConnection.current.addIceCandidate(newIceCandidate);
       } else {
-        // If not ready, push to queue
         iceCandidateQueue.current.push(newIceCandidate);
       }
     };
-
     const handleCallEnded = () => {
       toast.info("The call has ended.");
       cleanupCall();
@@ -131,14 +113,86 @@ const ChatPage = () => {
     };
   }, [currentUser, navigate, cleanupCall]);
 
+  const getMedia = (type) => {
+    const constraints = type === 'video' 
+      ? { video: true, audio: true }
+      : { video: false, audio: true };
+    return navigator.mediaDevices.getUserMedia(constraints);
+  };
+
   const createPeerConnection = (stream) => {
     peerConnection.current = new RTCPeerConnection(iceServers);
-    stream.getTracks().forEach(track => {
-      peerConnection.current.addTrack(track, stream);
-    });
-    peerConnection.current.ontrack = (event) => {
-      setRemoteStream(event.streams[0]);
-    };
+    stream.getTracks().forEach(track => peerConnection.current.addTrack(track, stream));
+    peerConnection.current.ontrack = (event) => setRemoteStream(event.streams[0]);
+  };
+
+  const startCall = async (type) => {
+    if (!activeChat) return;
+    setCallType(type);
+    try {
+        const stream = await getMedia(type);
+        setLocalStream(stream);
+        createPeerConnection(stream);
+        const recipientUser = users.find(u => u.username === activeChat);
+        if (!recipientUser) {
+            toast.error("Could not find user to call.");
+            cleanupCall();
+            return;
+        }
+        peerConnection.current.onicecandidate = (event) => {
+            if (event.candidate) {
+                socket.emit('ice-candidate', { to: recipientUser.id, candidate: event.candidate });
+            }
+        };
+        const offer = await peerConnection.current.createOffer();
+        await peerConnection.current.setLocalDescription(offer);
+        socket.emit('call-user', { to: activeChat, from: { id: socket.id, username: currentUser }, offer, callType: type });
+        setIsCalling(true);
+    } catch (error) {
+        handleGetUserMediaError(error);
+    }
+  };
+
+  const answerCall = async () => {
+    if (!incomingCall) return;
+    setCallType(incomingCall.callType);
+    try {
+        const stream = await getMedia(incomingCall.callType);
+        setLocalStream(stream);
+        createPeerConnection(stream);
+        peerConnection.current.onicecandidate = (event) => {
+            if (event.candidate) {
+                socket.emit('ice-candidate', { to: incomingCall.from.id, candidate: event.candidate });
+            }
+        };
+        await peerConnection.current.setRemoteDescription(new RTCSessionDescription(incomingCall.offer));
+        iceCandidateQueue.current.forEach(candidate => peerConnection.current.addIceCandidate(candidate));
+        iceCandidateQueue.current = [];
+        const answer = await peerConnection.current.createAnswer();
+        await peerConnection.current.setLocalDescription(answer);
+        socket.emit('call-accepted', { to: incomingCall.from, answer });
+        setIsCallActive(true);
+        setIncomingCall(null);
+    } catch (error) {
+        handleGetUserMediaError(error);
+    }
+  };
+  
+  const endCall = () => {
+    const recipientUsername = activeChat || (incomingCall ? incomingCall.from.username : null);
+    if(recipientUsername) {
+      socket.emit('end-call', { to: recipientUsername });
+    }
+    cleanupCall();
+  };
+
+  const handleToggleMute = () => {
+    if (localStream) {
+      localStream.getAudioTracks().forEach(track => {
+        track.enabled = !track.enabled;
+        setIsMuted(!track.enabled);
+      });
+    }
   };
 
   const handleGetUserMediaError = (error) => {
@@ -163,81 +217,11 @@ const ChatPage = () => {
     cleanupCall();
   };
 
-  const startCall = async () => {
-    if (!activeChat) return;
-    try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-        setLocalStream(stream);
-        createPeerConnection(stream);
-        
-        const recipientUser = users.find(u => u.username === activeChat);
-        if (!recipientUser) {
-            toast.error("Could not find user to call.");
-            cleanupCall();
-            return;
-        }
-        
-        peerConnection.current.onicecandidate = (event) => {
-            if (event.candidate) {
-                socket.emit('ice-candidate', { to: recipientUser.id, candidate: event.candidate });
-            }
-        };
-
-        const offer = await peerConnection.current.createOffer();
-        await peerConnection.current.setLocalDescription(offer);
-        
-        socket.emit('call-user', { to: activeChat, from: { id: socket.id, username: currentUser }, offer });
-        setIsCalling(true);
-    } catch (error) {
-        handleGetUserMediaError(error);
-    }
-  };
-
-  const answerCall = async () => {
-    if (!incomingCall) return;
-    try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-        setLocalStream(stream);
-        createPeerConnection(stream);
-
-        peerConnection.current.onicecandidate = (event) => {
-            if (event.candidate) {
-                socket.emit('ice-candidate', { to: incomingCall.id, candidate: event.candidate });
-            }
-        };
-
-        await peerConnection.current.setRemoteDescription(new RTCSessionDescription(callData.current.offer));
-
-        // Process any queued candidates that arrived early
-        iceCandidateQueue.current.forEach(candidate => {
-            peerConnection.current.addIceCandidate(candidate);
-        });
-        iceCandidateQueue.current = []; // Clear queue
-
-        const answer = await peerConnection.current.createAnswer();
-        await peerConnection.current.setLocalDescription(answer);
-
-        socket.emit('call-accepted', { to: incomingCall, answer });
-        setIsCallActive(true);
-        setIncomingCall(null);
-    } catch (error) {
-        handleGetUserMediaError(error);
-    }
-  };
-  
-  const endCall = () => {
-    const recipientUsername = activeChat || (incomingCall ? incomingCall.username : null);
-    if(recipientUsername) {
-      socket.emit('end-call', { to: recipientUsername });
-    }
-    cleanupCall();
-  };
-
   return (
     <div className="flex h-screen font-sans bg-gray-100">
       {incomingCall && !isCallActive && (
         <div className="absolute top-5 right-5 bg-white p-4 rounded-lg shadow-xl z-50 flex flex-col items-center gap-3 border">
-          <p className="font-semibold">{incomingCall.username} is calling...</p>
+          <p className="font-semibold">{incomingCall.from.username} is starting an {incomingCall.callType} call...</p>
           <div className="flex gap-4">
             <button onClick={answerCall} className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg">Answer</button>
             <button onClick={() => { setIncomingCall(null); cleanupCall(); }} className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg">Decline</button>
@@ -245,7 +229,7 @@ const ChatPage = () => {
         </div>
       )}
 
-      {isCallActive && (
+      {isCallActive && callType === 'video' && (
         <VideoCall
           stream={localStream}
           remoteStream={remoteStream}
@@ -254,25 +238,28 @@ const ChatPage = () => {
           onEndCall={endCall}
         />
       )}
+      {isCallActive && callType === 'audio' && (
+        <AudioCall
+          activeChat={activeChat || (incomingCall ? incomingCall.from.username : '')}
+          isMuted={isMuted}
+          onToggleMute={handleToggleMute}
+          onEndCall={endCall}
+        />
+      )}
       
-      <ChatSidebar
-        users={users}
-        currentUser={currentUser}
-        setActiveChat={setActiveChat}
-        activeChat={activeChat}
-        isConnected={isConnected}
-      />
+      <ChatSidebar users={users} currentUser={currentUser} setActiveChat={setActiveChat} activeChat={activeChat} isConnected={isConnected} />
       <div className="flex flex-col flex-grow">
         <header className="bg-white text-gray-800 p-4 text-xl font-bold flex justify-between items-center border-b">
           <span>{activeChat ? `Chat with ${activeChat}` : 'Select a user to chat'}</span>
           {activeChat && (
-            <button 
-              onClick={startCall} 
-              disabled={isCalling || isCallActive}
-              className="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
-            >
-              {isCalling ? 'Calling...' : 'Video Call'}
-            </button>
+            <div className="flex gap-3">
+              <button onClick={() => startCall('audio')} disabled={isCalling || isCallActive} className="p-2 rounded-full bg-blue-500 hover:bg-blue-600 disabled:bg-gray-400" title="Start Audio Call">
+                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"></path></svg>
+              </button>
+              <button onClick={() => startCall('video')} disabled={isCalling || isCallActive} className="p-2 rounded-full bg-green-500 hover:bg-green-600 disabled:bg-gray-400" title="Start Video Call">
+                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+              </button>
+            </div>
           )}
         </header>
         <ChatBody activeChat={activeChat} />
