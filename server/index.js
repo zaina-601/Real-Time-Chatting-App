@@ -20,89 +20,45 @@ app.get('/', (req, res) => {
 });
 
 // Health check endpoint
-app.get('/health', async (req, res) => {
-  try {
-    const dbStatus = mongoose.connection.readyState === 1 ? 'connected' : 'disconnected';
-    res.json({ 
-      status: 'ok',
-      database: dbStatus,
-      timestamp: new Date().toISOString(),
-      uptime: process.uptime()
-    });
-  } catch (error) {
-    res.status(500).json({ 
-      status: 'error',
-      message: error.message 
-    });
-  }
-});
-
-// Test MongoDB connection endpoint
-app.get('/test-db', async (req, res) => {
-  try {
-    const isConnected = mongoose.connection.readyState === 1;
-    const dbInfo = {
-      connected: isConnected,
-      status: mongoose.connection.readyState,
-      name: isConnected ? mongoose.connection.name : 'Not connected',
-      host: isConnected ? mongoose.connection.host : 'Not connected',
-      message: isConnected ? 'Database connected' : 'Database not connected'
-    };
-    res.json(dbInfo);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+app.get('/health', (req, res) => {
+  const dbStatus = mongoose.connection.readyState === 1 ? 'connected' : 'disconnected';
+  res.json({ 
+    status: 'ok',
+    database: dbStatus,
+    timestamp: new Date().toISOString()
+  });
 });
 
 // Use environment variable for MongoDB URI
-const mongoURI = process.env.MONGODB_URI || "mongodb+srv://225186:8536675m@cluster0.002gnfa.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
+const mongoURI = process.env.MONGODB_URI;
 
-if (!process.env.MONGODB_URI) {
-  console.warn("⚠️ MONGODB_URI environment variable not set. Using hardcoded fallback URI.");
+if (!mongoURI) {
+  console.error("❌ FATAL ERROR: MONGODB_URI environment variable is not set.");
+} else {
+  mongoose.connect(mongoURI, {
+    serverSelectionTimeoutMS: 20000,
+    socketTimeoutMS: 45000,
+    maxPoolSize: 10,
+    bufferCommands: false,
+  })
+  .then(() => {
+    console.log("✅ MongoDB connected successfully");
+  })
+  .catch(err => {
+    console.error("❌ Initial MongoDB connection error.", err.message);
+  });
 }
 
-// Enhanced MongoDB connection with better error handling
-mongoose.connect(mongoURI, {
-  serverSelectionTimeoutMS: 10000,
-  socketTimeoutMS: 45000,
-  maxPoolSize: 10,
-  bufferCommands: false, // Important for handling connection issues
-})
-.then(() => {
-  console.log("✅ MongoDB connected successfully");
-})
-.catch(err => {
-  // ❌ CRITICAL FIX: Do not exit the process. Log the error instead.
-  // The server will stay online, and mongoose will try to reconnect.
-  console.error("❌ Initial MongoDB connection error:", err.message);
-});
-
-// Monitor MongoDB connection
-mongoose.connection.on('error', (err) => {
-  console.error('❌ MongoDB connection error:', err);
-});
-
-mongoose.connection.on('disconnected', () => {
-  console.log('❌ MongoDB disconnected. Trying to reconnect...');
-});
-
-mongoose.connection.on('reconnected', () => {
-  console.log('✅ MongoDB reconnected');
-});
+mongoose.connection.on('error', (err) => console.error('❌ MongoDB runtime error:', err));
+mongoose.connection.on('disconnected', () => console.log('❌ MongoDB disconnected.'));
+mongoose.connection.on('reconnected', () => console.log('✅ MongoDB reconnected.'));
 
 const messageSchema = new mongoose.Schema({
   text: { type: String, required: true, maxLength: 1000, trim: true },
   sender: { type: String, required: true, maxLength: 50, trim: true },
   recipient: { type: String, required: true, maxLength: 50, trim: true },
-  timestamp: { type: Date, default: Date.now },
-  delivered: { type: Boolean, default: false },
-  read: { type: Boolean, default: false }
-}, {
-  timestamps: true
-});
-
-messageSchema.index({ sender: 1, recipient: 1, timestamp: -1 });
-messageSchema.index({ timestamp: -1 });
+  timestamp: { type: Date, default: Date.now }
+}, { timestamps: true });
 
 const Message = mongoose.model('Message', messageSchema);
 
@@ -111,25 +67,12 @@ const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
     origin: [frontendURL, "http://localhost:3000"],
-    methods: ['GET', 'POST'],
-    credentials: true
+    methods: ['GET', 'POST']
   },
-  pingTimeout: 60000,
-  pingInterval: 25000,
   transports: ['polling', 'websocket']
-  // ❌ CRITICAL FIX: Removed allowEIO3: true. Ensure client is on Socket.IO v4.
 });
 
-let users = new Map();
-
-function validateMessageData({ text, sender, recipient }) {
-  if (!text || typeof text !== 'string' || text.trim().length === 0) return 'Message text is required';
-  if (!sender || typeof sender !== 'string' || sender.trim().length === 0) return 'Sender is required';
-  if (!recipient || typeof recipient !== 'string' || recipient.trim().length === 0) return 'Recipient is required';
-  if (text.trim().length > 1000) return 'Message too long (max 1000 characters)';
-  if (sender.trim().length > 50 || recipient.trim().length > 50) return 'Username too long (max 50 characters)';
-  return null;
-}
+let users = new Map(); // Use Map for better performance and to store socket IDs
 
 function isDatabaseConnected() {
   return mongoose.connection.readyState === 1;
@@ -138,63 +81,41 @@ function isDatabaseConnected() {
 io.on('connection', (socket) => {
   console.log(`🔌 User connected: ${socket.id}`);
 
-  // Inform client immediately about database status
   socket.emit('connectionConfirmed', { 
-    socketId: socket.id, 
-    timestamp: new Date().toISOString(),
-    dbConnected: isDatabaseConnected()
+    socketId: socket.id,
+    dbConnected: isDatabaseConnected() 
   });
 
   socket.on('newUser', (username) => {
-    if (!username || typeof username !== 'string' || username.trim().length === 0) {
-      socket.emit('error', { message: 'Invalid username' });
-      return;
-    }
+    if (!username) return;
     const cleanUsername = username.trim();
-    for (let [socketId, userData] of users.entries()) {
-      if (userData.username === cleanUsername && socketId !== socket.id) {
-        users.delete(socketId);
-      }
-    }
     const newUser = { id: socket.id, username: cleanUsername };
     users.set(socket.id, newUser);
-    console.log(`✅ User added: ${cleanUsername}, Total users: ${users.size}`);
-    const userArray = Array.from(users.values());
-    socket.broadcast.emit('userJoined', newUser);
-    io.emit('userList', userArray);
-    socket.emit('userJoinConfirmed', { username: cleanUsername, users: userArray });
+    io.emit('userList', Array.from(users.values()));
+    socket.emit('userJoinConfirmed', { username: cleanUsername, users: Array.from(users.values()) });
   });
 
   socket.on('getPrivateMessages', async ({ user1, user2 }) => {
     if (!isDatabaseConnected()) {
-      socket.emit('error', { message: 'Server database connection issue' });
-      return;
+      return socket.emit('error', { message: 'Server database connection issue' });
     }
     try {
-      const messageDocs = await Message.find({
+      const messages = await Message.find({
         $or: [{ sender: user1, recipient: user2 }, { sender: user2, recipient: user1 }]
-      }).sort({ timestamp: 1 }).limit(100).lean();
-      socket.emit('privateMessages', messageDocs);
-    } catch (err) {
-      console.error("⚠️ Error fetching messages:", err);
-      socket.emit('error', { message: 'Failed to fetch messages' });
+      }).sort({ timestamp: 1 }).limit(100);
+      socket.emit('privateMessages', messages);
+    } catch(err) {
+      socket.emit('error', { message: 'Failed to fetch messages.' });
     }
   });
 
   socket.on('sendPrivateMessage', async (data) => {
-    const validationError = validateMessageData(data);
-    if (validationError) {
-      socket.emit('error', { message: validationError });
-      return;
-    }
     if (!isDatabaseConnected()) {
-      socket.emit('error', { message: 'Server database connection issue' });
-      return;
+      return socket.emit('error', { message: 'Server database connection issue' });
     }
     try {
       const newMessage = new Message(data);
       const savedMessage = await newMessage.save();
-      const messagePayload = savedMessage.toObject();
       let recipientSocketId = null;
       for (let [socketId, userData] of users.entries()) {
         if (userData.username === data.recipient) {
@@ -203,68 +124,75 @@ io.on('connection', (socket) => {
         }
       }
       if (recipientSocketId) {
-        io.to(recipientSocketId).emit('receivePrivateMessage', messagePayload);
+        io.to(recipientSocketId).emit('receivePrivateMessage', savedMessage);
       }
-      socket.emit('receivePrivateMessage', messagePayload);
+      socket.emit('receivePrivateMessage', savedMessage);
       socket.emit('messageSent', { success: true, messageId: savedMessage._id });
-    } catch (err) {
-      console.error("⚠️ Error saving message:", err);
-      socket.emit('error', { message: 'Failed to send message' });
+    } catch(err) {
+      socket.emit('error', { message: 'Failed to send message.' });
     }
   });
 
-  socket.on('typing', ({ sender, recipient }) => {
+  // --- NEW: WebRTC Signaling Events ---
+
+  // User initiates a call
+  socket.on('call-user', ({ to, from, offer }) => {
+    console.log(`📞 Call attempt from ${from.username} to user ${to}`);
     let recipientSocketId = null;
     for (let [socketId, userData] of users.entries()) {
-      if (userData.username === recipient) {
+      if (userData.username === to) {
         recipientSocketId = socketId;
         break;
       }
     }
+
     if (recipientSocketId) {
-      io.to(recipientSocketId).emit('userTyping', sender);
+      console.log(`Found recipient ${to} at socket ${recipientSocketId}. Sending 'incoming-call'...`);
+      io.to(recipientSocketId).emit('incoming-call', { from, offer });
+    } else {
+      socket.emit('call-error', { message: 'User is not online.' });
     }
   });
 
-  socket.on('stopTyping', ({ sender, recipient }) => {
+  // User accepts the call
+  socket.on('call-accepted', ({ to, answer }) => {
+    console.log(`✅ Call accepted by ${socket.id}. Sending answer back to ${to.id}`);
+    io.to(to.id).emit('call-finalized', { from: socket.id, answer });
+  });
+
+  // Exchange ICE candidates for NAT traversal
+  socket.on('ice-candidate', ({ to, candidate }) => {
+    io.to(to).emit('ice-candidate', { from: socket.id, candidate });
+  });
+
+  // User ends the call
+  socket.on('end-call', ({ to }) => {
+    console.log(`🛑 Call ended by ${socket.id} for user ${to}`);
     let recipientSocketId = null;
     for (let [socketId, userData] of users.entries()) {
-      if (userData.username === recipient) {
-        recipientSocketId = socketId;
-        break;
-      }
+        if (userData.username === to) {
+            recipientSocketId = socketId;
+            break;
+        }
     }
     if (recipientSocketId) {
-      io.to(recipientSocketId).emit('userStoppedTyping', sender);
+        io.to(recipientSocketId).emit('call-ended');
     }
   });
+  
+  // --- END of WebRTC Events ---
 
-  socket.on('disconnect', (reason) => {
-    const disconnectedUser = users.get(socket.id);
-    if (disconnectedUser) {
-      users.delete(socket.id);
-      io.emit('userList', Array.from(users.values()));
-      socket.broadcast.emit('userLeft', disconnectedUser);
-      console.log(`❌ User disconnected: ${disconnectedUser.username} (${reason})`);
-    }
+  socket.on('disconnect', () => {
+    console.log(`❌ User disconnected: ${socket.id}`);
+    users.delete(socket.id);
+    io.emit('userList', Array.from(users.values()));
   });
-
-  socket.on('error', (error) => {
-    console.error(`🔴 Socket error for ${socket.id}:`, error);
-  });
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-});
-
-process.on('uncaughtException', (error) => {
-  console.error('Uncaught Exception:', error);
-  process.exit(1); // Still exit on unknown exceptions, but not DB connection
 });
 
 const PORT = process.env.PORT || 4000;
 server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📊 Initial MongoDB status: ${isDatabaseConnected() ? 'Connected' : 'Disconnected'}`);
+  if (!process.env.MONGODB_URI) {
+    console.log("🔴 Server is running WITHOUT a database connection.");
+  }
 });
