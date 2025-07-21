@@ -23,7 +23,6 @@ const ChatPage = () => {
   const navigate = useNavigate();
   const currentUser = sessionStorage.getItem('username');
 
-  // --- Call States ---
   const [isCalling, setIsCalling] = useState(false);
   const [isCallActive, setIsCallActive] = useState(false);
   const [incomingCall, setIncomingCall] = useState(null);

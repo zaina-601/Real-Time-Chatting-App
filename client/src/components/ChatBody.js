@@ -18,7 +18,6 @@ const ChatBody = ({ activeChat }) => {
   const maxRetries = 3;
   const loadingTimeoutMs = 10000; // 10 seconds timeout
 
-  // Memoized load messages function
   const loadMessages = useCallback(() => {
     if (!activeChat || !currentUser || !isConnected) return;
     
@@ -26,13 +25,11 @@ const ChatBody = ({ activeChat }) => {
     setLoading(true);
     setError(null);
     
-    // Clear any existing timeout
     if (messageTimeoutRef.current) {
       clearTimeout(messageTimeoutRef.current);
       messageTimeoutRef.current = null;
     }
     
-    // Add timeout for the request
     messageTimeoutRef.current = setTimeout(() => {
       setLoading(false);
       if (retryCount < maxRetries) {
@@ -56,17 +53,14 @@ const ChatBody = ({ activeChat }) => {
     }
   }, [activeChat, currentUser, isConnected, retryCount, maxRetries]);
 
-  // Load messages when activeChat changes
   useEffect(() => {
     console.log('Active chat changed to:', activeChat);
     
-    // Reset state
     setMessages([]);
     setTypingUser(null);
     setError(null);
     setRetryCount(0);
     
-    // Clear timeouts
     if (messageTimeoutRef.current) {
       clearTimeout(messageTimeoutRef.current);
       messageTimeoutRef.current = null;
@@ -77,7 +71,6 @@ const ChatBody = ({ activeChat }) => {
     }
     
     if (activeChat && currentUser && isConnected) {
-      // Small delay to ensure socket is ready
       const loadTimer = setTimeout(() => {
         loadMessages();
       }, 100);
@@ -86,7 +79,6 @@ const ChatBody = ({ activeChat }) => {
     }
   }, [activeChat, currentUser, isConnected, loadMessages]);
 
-  // Retry with exponential backoff
   const retryLoadMessages = useCallback(() => {
     if (retryCount < maxRetries) {
       const backoffDelay = Math.min(1000 * Math.pow(2, retryCount), 5000);
@@ -101,14 +93,12 @@ const ChatBody = ({ activeChat }) => {
     setRetryCount(0);
   }, []);
 
-  // Set up socket event listeners
   useEffect(() => {
     const handleConnect = () => {
       console.log('Socket connected in ChatBody');
       setIsConnected(true);
       setError(null);
-      
-      // Reload messages if we have an active chat
+
       if (activeChat && currentUser) {
         setTimeout(() => {
           loadMessages();
@@ -121,13 +111,11 @@ const ChatBody = ({ activeChat }) => {
       setIsConnected(false);
       setLoading(false);
       
-      // Clear timeouts
       if (messageTimeoutRef.current) {
         clearTimeout(messageTimeoutRef.current);
         messageTimeoutRef.current = null;
       }
       
-      // Only show error if not intentionally disconnecting
       if (reason !== 'io client disconnect') {
         setError('Connection lost. Trying to reconnect...');
       }
@@ -136,13 +124,11 @@ const ChatBody = ({ activeChat }) => {
     const handlePrivateMessages = (history) => {
       console.log('Received message history:', history?.length, 'messages');
       
-      // Clear timeout
       if (messageTimeoutRef.current) {
         clearTimeout(messageTimeoutRef.current);
         messageTimeoutRef.current = null;
       }
       
-      // Validate and set messages
       const validMessages = Array.isArray(history) ? history.filter(msg => 
         msg && msg.text && msg.sender && msg.recipient && msg.timestamp
       ) : [];
@@ -156,7 +142,6 @@ const ChatBody = ({ activeChat }) => {
     const handlePrivateMessage = (data) => {
       console.log('Received new message:', data);
       
-      // Validate message data
       if (!data || !data.sender || !data.recipient || !data.text || !data.timestamp) {
         console.warn('Received invalid message data:', data);
         return;
@@ -168,14 +153,11 @@ const ChatBody = ({ activeChat }) => {
 
       if (isForCurrentChat) {
         setMessages((prevMessages) => {
-          // Avoid duplicate messages with more robust checking
           const isDuplicate = prevMessages.some(msg => {
-            // Check by ID first
             if (msg._id && data._id && msg._id === data._id) {
               return true;
             }
             
-            // Check by content and timestamp
             const isSameContent = msg.text === data.text && 
                                 msg.sender === data.sender && 
                                 msg.recipient === data.recipient;
@@ -185,7 +167,7 @@ const ChatBody = ({ activeChat }) => {
                 new Date(msg.timestamp).getTime() - 
                 new Date(data.timestamp).getTime()
               );
-              return timeDiff < 1000; // Consider duplicates if within 1 second
+              return timeDiff < 1000;
             }
             
             return false;
@@ -199,11 +181,9 @@ const ChatBody = ({ activeChat }) => {
           return prevMessages;
         });
         
-        // Clear typing indicator
         setTypingUser(null);
         setError(null);
       } else if (data.sender !== currentUser) {
-        // Show notification for messages from other users
         toast.info(`New message from ${data.sender}`, {
           position: "top-right",
           autoClose: 3000,
@@ -220,12 +200,10 @@ const ChatBody = ({ activeChat }) => {
         console.log(sender, 'is typing');
         setTypingUser(sender);
         
-        // Clear existing timeout
         if (typingTimeoutRef.current) {
           clearTimeout(typingTimeoutRef.current);
         }
         
-        // Set timeout to clear typing indicator
         typingTimeoutRef.current = setTimeout(() => {
           setTypingUser(prev => prev === sender ? null : prev);
         }, 5000);
@@ -247,7 +225,6 @@ const ChatBody = ({ activeChat }) => {
     const handleError = (error) => {
       console.error('Socket error in ChatBody:', error);
       
-      // Clear timeout
       if (messageTimeoutRef.current) {
         clearTimeout(messageTimeoutRef.current);
         messageTimeoutRef.current = null;
@@ -260,14 +237,13 @@ const ChatBody = ({ activeChat }) => {
         if (error.message === 'Failed to fetch messages') {
           errorMessage = 'Failed to load messages';
           setError(errorMessage);
-          // Auto retry for fetch errors
           if (retryCount < maxRetries) {
             setTimeout(() => {
               setRetryCount(prev => prev + 1);
               loadMessages();
             }, 2000);
           }
-          return; // Don't show toast for fetch errors that auto-retry
+          return; 
         } else if (error.message === 'Database connection error') {
           errorMessage = 'Server database error - please try again';
         } else if (error.message === 'Invalid user parameters') {
@@ -281,7 +257,6 @@ const ChatBody = ({ activeChat }) => {
       
       setError(errorMessage);
       
-      // Only show toast for non-fetch errors
       if (!errorMessage.includes('Failed to load messages')) {
         toast.error(errorMessage, {
           position: "top-right",
@@ -303,7 +278,6 @@ const ChatBody = ({ activeChat }) => {
       }
     };
 
-    // Add event listeners
     socket.on('connect', handleConnect);
     socket.on('disconnect', handleDisconnect);
     socket.on('privateMessages', handlePrivateMessages);
@@ -313,10 +287,8 @@ const ChatBody = ({ activeChat }) => {
     socket.on('error', handleError);
     socket.on('connectionConfirmed', handleConnectionConfirmed);
 
-    // Set initial connection state
     setIsConnected(socket.connected);
 
-    // Cleanup function
     return () => {
       socket.off('connect', handleConnect);
       socket.off('disconnect', handleDisconnect);
@@ -327,7 +299,6 @@ const ChatBody = ({ activeChat }) => {
       socket.off('error', handleError);
       socket.off('connectionConfirmed', handleConnectionConfirmed);
       
-      // Clear timeouts
       if (messageTimeoutRef.current) {
         clearTimeout(messageTimeoutRef.current);
       }
@@ -337,7 +308,6 @@ const ChatBody = ({ activeChat }) => {
     };
   }, [activeChat, currentUser, retryCount, loadMessages]);
 
-  // Auto-retry effect for failed loads
   useEffect(() => {
     if (error && error.includes('retrying') && retryCount > 0 && retryCount <= maxRetries) {
       const timer = setTimeout(() => {
@@ -348,7 +318,6 @@ const ChatBody = ({ activeChat }) => {
     }
   }, [error, retryCount, maxRetries, retryLoadMessages]);
 
-  // Auto-scroll to latest message
   useEffect(() => {
     if (lastMessageRef.current && messages.length > 0) {
       lastMessageRef.current.scrollIntoView({ 
@@ -403,7 +372,7 @@ const ChatBody = ({ activeChat }) => {
       return (
         <div className="text-center py-8">
           <div className="text-red-500 mb-4">
-            <div className="text-lg font-semibold mb-2">🔴 Disconnected</div>
+            <div className="text-lg font-semibold mb-2">Disconnected</div>
             <div className="text-sm">Lost connection to server</div>
             <div className="text-xs text-gray-500 mt-2">Attempting to reconnect...</div>
           </div>
@@ -426,7 +395,7 @@ const ChatBody = ({ activeChat }) => {
       return (
         <div className="text-center py-8">
           <div className="text-red-500 mb-4">
-            <div className="text-lg font-semibold mb-2">❌ Not Authenticated</div>
+            <div className="text-lg font-semibold mb-2">Not Authenticated</div>
             <div className="text-sm">Please log in to start chatting</div>
           </div>
         </div>

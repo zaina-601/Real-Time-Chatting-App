@@ -19,7 +19,7 @@ app.get('/', (req, res) => {
   res.status(200).send('<h1>Real-Time Chat Server is running.</h1>');
 });
 
-// Health check endpoint
+
 app.get('/health', (req, res) => {
   const dbStatus = mongoose.connection.readyState === 1 ? 'connected' : 'disconnected';
   res.json({ 
@@ -29,11 +29,10 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Use environment variable for MongoDB URI
 const mongoURI = process.env.MONGODB_URI;
 
 if (!mongoURI) {
-  console.error("❌ FATAL ERROR: MONGODB_URI environment variable is not set.");
+  console.error("FATAL ERROR: MONGODB_URI environment variable is not set.");
 } else {
   mongoose.connect(mongoURI, {
     serverSelectionTimeoutMS: 20000,
@@ -42,16 +41,16 @@ if (!mongoURI) {
     bufferCommands: false,
   })
   .then(() => {
-    console.log("✅ MongoDB connected successfully");
+    console.log("MongoDB connected successfully");
   })
   .catch(err => {
-    console.error("❌ Initial MongoDB connection error.", err.message);
+    console.error("Initial MongoDB connection error.", err.message);
   });
 }
 
-mongoose.connection.on('error', (err) => console.error('❌ MongoDB runtime error:', err));
-mongoose.connection.on('disconnected', () => console.log('❌ MongoDB disconnected.'));
-mongoose.connection.on('reconnected', () => console.log('✅ MongoDB reconnected.'));
+mongoose.connection.on('error', (err) => console.error('MongoDB runtime error:', err));
+mongoose.connection.on('disconnected', () => console.log('MongoDB disconnected.'));
+mongoose.connection.on('reconnected', () => console.log('MongoDB reconnected.'));
 
 const messageSchema = new mongoose.Schema({
   text: { type: String, required: true, maxLength: 1000, trim: true },
@@ -72,14 +71,14 @@ const io = new Server(server, {
   transports: ['polling', 'websocket']
 });
 
-let users = new Map(); // Use Map for better performance and to store socket IDs
+let users = new Map();
 
 function isDatabaseConnected() {
   return mongoose.connection.readyState === 1;
 }
 
 io.on('connection', (socket) => {
-  console.log(`🔌 User connected: ${socket.id}`);
+  console.log(`User connected: ${socket.id}`);
 
   socket.emit('connectionConfirmed', { 
     socketId: socket.id,
@@ -133,8 +132,6 @@ io.on('connection', (socket) => {
   });
 
   // --- WebRTC Signaling Events ---
-
-  // MODIFIED: User initiates a call, now includes callType
   socket.on('call-user', ({ to, from, offer, callType }) => {
     console.log(`📞 ${callType} call attempt from ${from.username} to user ${to}`);
     let recipientSocketId = null;
@@ -147,27 +144,23 @@ io.on('connection', (socket) => {
 
     if (recipientSocketId) {
       console.log(`Found recipient ${to} at socket ${recipientSocketId}. Sending 'incoming-call'...`);
-      // Pass the callType to the recipient
       io.to(recipientSocketId).emit('incoming-call', { from, offer, callType });
     } else {
       socket.emit('call-error', { message: 'User is not online.' });
     }
   });
 
-  // User accepts the call
   socket.on('call-accepted', ({ to, answer }) => {
-    console.log(`✅ Call accepted by ${socket.id}. Sending answer back to ${to.id}`);
+    console.log(`Call accepted by ${socket.id}. Sending answer back to ${to.id}`);
     io.to(to.id).emit('call-finalized', { from: socket.id, answer });
   });
 
-  // Exchange ICE candidates for NAT traversal
   socket.on('ice-candidate', ({ to, candidate }) => {
     io.to(to).emit('ice-candidate', { from: socket.id, candidate });
   });
 
-  // User ends the call
   socket.on('end-call', ({ to }) => {
-    console.log(`🛑 Call ended by ${socket.id} for user ${to}`);
+    console.log(`Call ended by ${socket.id} for user ${to}`);
     let recipientSocketId = null;
     for (let [socketId, userData] of users.entries()) {
         if (userData.username === to) {
@@ -181,7 +174,7 @@ io.on('connection', (socket) => {
   });
   
   socket.on('disconnect', () => {
-    console.log(`❌ User disconnected: ${socket.id}`);
+    console.log(`User disconnected: ${socket.id}`);
     users.delete(socket.id);
     io.emit('userList', Array.from(users.values()));
   });
@@ -189,5 +182,5 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 4000;
 server.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });

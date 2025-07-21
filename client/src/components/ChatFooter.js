@@ -16,7 +16,6 @@ const ChatFooter = ({ activeChat }) => {
     setIsSending(false);
     setSendError(null);
     
-    // Clear typing timeout when activeChat changes
     if (typingTimeoutRef.current) {
       clearTimeout(typingTimeoutRef.current);
       typingTimeoutRef.current = null;
@@ -74,16 +73,13 @@ const ChatFooter = ({ activeChat }) => {
       }
     };
 
-    // Set up socket listeners
     socket.on('connect', handleConnect);
     socket.on('disconnect', handleDisconnect);
     socket.on('messageSent', handleMessageSent);
     socket.on('error', handleError);
 
-    // Set initial connection state
     setIsConnected(socket.connected);
 
-    // Cleanup
     return () => {
       socket.off('connect', handleConnect);
       socket.off('disconnect', handleDisconnect);
@@ -109,7 +105,6 @@ const ChatFooter = ({ activeChat }) => {
       return;
     }
 
-    // Validate message
     if (message.trim().length > 1000) {
       toast.error('Message is too long (max 1000 characters)');
       return;
@@ -129,20 +124,17 @@ const ChatFooter = ({ activeChat }) => {
     try {
       socket.emit('sendPrivateMessage', messageData);
       setMessage('');
-      
-      // Clear typing indicator
+
       if (isTypingRef.current) {
         socket.emit('stopTyping', { sender: username, recipient: activeChat });
         isTypingRef.current = false;
       }
       
-      // Clear typing timeout
       if (typingTimeoutRef.current) {
         clearTimeout(typingTimeoutRef.current);
         typingTimeoutRef.current = null;
       }
 
-      // Set a timeout to handle cases where the server doesn't respond
       sendTimeoutRef.current = setTimeout(() => {
         setIsSending(false);
         setSendError('Message send timeout');
@@ -160,25 +152,22 @@ const ChatFooter = ({ activeChat }) => {
   const handleTyping = (e) => {
     const newValue = e.target.value;
     setMessage(newValue);
-    setSendError(null); // Clear any previous send errors when typing
+    setSendError(null); 
     
     if (!activeChat || !isConnected) return;
     
     const username = sessionStorage.getItem('username');
     if (!username) return;
 
-    // Only emit typing if not already typing and message is not empty
     if (!isTypingRef.current && newValue.trim()) {
       socket.emit('typing', { sender: username, recipient: activeChat });
       isTypingRef.current = true;
     }
     
-    // Clear existing timeout
     if (typingTimeoutRef.current) {
       clearTimeout(typingTimeoutRef.current);
     }
     
-    // Set new timeout to stop typing
     if (newValue.trim()) {
       typingTimeoutRef.current = setTimeout(() => {
         if (isTypingRef.current) {
@@ -188,7 +177,6 @@ const ChatFooter = ({ activeChat }) => {
         typingTimeoutRef.current = null;
       }, 2000);
     } else {
-      // If message is empty, immediately stop typing
       if (isTypingRef.current) {
         socket.emit('stopTyping', { sender: username, recipient: activeChat });
         isTypingRef.current = false;
@@ -266,7 +254,7 @@ const ChatFooter = ({ activeChat }) => {
       
       {!activeChat && (
         <div className="mt-2 text-sm text-gray-500 text-center">
-          👆 Select a user from the sidebar to start chatting
+          Select a user from the sidebar to start chatting
         </div>
       )}
     </div>
