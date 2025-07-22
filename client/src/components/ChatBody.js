@@ -15,12 +15,11 @@ const ChatBody = ({ activeChat }) => {
   useEffect(() => {
     if (activeChat) {
       setLoading(true);
-      setMessages([]); 
+      setMessages([]);
       socket.emit('getPrivateMessages', { user1: currentUser, user2: activeChat });
     }
-  }, [activeChat, currentUser]);
 
-  useEffect(() => {
+    // Handlers should be defined outside the socket effect if they don't depend on its scope
     const handlePrivateMessages = (history) => {
       setMessages(Array.isArray(history) ? history : []);
       setLoading(false);
@@ -35,8 +34,8 @@ const ChatBody = ({ activeChat }) => {
 
       if (isForCurrentChat) {
         setMessages(prevMessages => [...prevMessages, data]);
-        setTypingUser(null); 
-      } else if (data.sender !== currentUser) {s
+        setTypingUser(null);
+      } else if (data.sender !== currentUser) {
         toast.info(`New message from ${data.sender}`);
       }
     };
@@ -55,19 +54,23 @@ const ChatBody = ({ activeChat }) => {
       }
     };
 
+    // Register event listeners
     socket.on('privateMessages', handlePrivateMessages);
     socket.on('receivePrivateMessage', handleReceiveMessage);
     socket.on('userTyping', handleUserTyping);
     socket.on('userStoppedTyping', handleUserStoppedTyping);
 
+    // Cleanup function to remove listeners
     return () => {
       socket.off('privateMessages', handlePrivateMessages);
       socket.off('receivePrivateMessage', handleReceiveMessage);
       socket.off('userTyping', handleUserTyping);
       socket.off('userStoppedTyping', handleUserStoppedTyping);
-      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
     };
-  }, [activeChat, currentUser]);
+  }, [activeChat, currentUser]); // Rerun effect when activeChat or currentUser changes
 
   useEffect(() => {
     lastMessageRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -122,7 +125,7 @@ const ChatBody = ({ activeChat }) => {
     let lastDate = null;
 
     return messages.map((message, index) => {
-      if (!message || !message.timestamp) return null; 
+      if (!message || !message.timestamp) return null;
 
       const isOwnMessage = message.sender === currentUser;
       const messageDate = formatDate(message.timestamp);
