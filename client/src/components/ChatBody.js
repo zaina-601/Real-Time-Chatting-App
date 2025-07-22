@@ -1,280 +1,184 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useRef } from 'react';
 import socket from '../socket';
+import { ToastContainer, toast } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
 
-import ChatSidebar from '../components/ChatSidebar';
-import ChatBody from '../components/ChatBody';
-import ChatFooter from '../components/ChatFooter';
-import VideoCall from '../components/VideoCall';
-import AudioCall from '../components/AudioCall';
-import { toast } from 'react-toastify';
+const ChatBody = ({ activeChat }) => {
+  const [messages, setMessages] = useState([]);
+  const [typingUser, setTypingUser] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-const iceServers = {
-  iceServers: [ { urls: 'stun:stun.l.google.com:19302' } ],
-};
-
-// Helper function to format duration
-function formatDuration(startTime) {
-  if (!startTime) return "less than a second";
-  const durationSeconds = Math.floor((Date.now() - startTime) / 1000);
-  const minutes = Math.floor(durationSeconds / 60);
-  const seconds = durationSeconds % 60;
-  if (minutes > 0) return `${minutes} minute(s) ${seconds} second(s)`;
-  return `${seconds} second(s)`;
-}
-
-const ChatPage = () => {
-  const [users, setUsers] = useState([]);
-  const [activeChat, setActiveChat] = useState(null);
-  const [isConnected, setIsConnected] = useState(false);
-  const navigate = useNavigate();
+  const lastMessageRef = useRef(null);
+  const typingTimeoutRef = useRef(null);
   const currentUser = sessionStorage.getItem('username');
 
-  // Call States
-  const [isCalling, setIsCalling] = useState(false);
-  const [isCallActive, setIsCallActive] = useState(false);
-  const [incomingCall, setIncomingCall] = useState(null);
-  const [localStream, setLocalStream] = useState(null);
-  const [remoteStream, setRemoteStream] = useState(null);
-  const [callType, setCallType] = useState(null);
-  const [isMuted, setIsMuted] = useState(false);
-  const [callStartTime, setCallStartTime] = useState(null);
-  
-  const peerConnection = useRef();
-  const myVideo = useRef();
-  const theirVideo = useRef();
-  const iceCandidateQueue = useRef([]);
-
-  // --- STABILIZED CALLBACKS ---
-  // This section defines all our event handlers using useCallback.
-  // This prevents them from being recreated on every render, stopping the infinite loop.
-
-  const cleanupCall = useCallback(() => {
-    console.log("Cleaning up call resources...");
-    if (peerConnection.current) {
-        peerConnection.current.close();
-        peerConnection.current = null;
-    }
-    setLocalStream(currentStream => {
-      if (currentStream) currentStream.getTracks().forEach(track => track.stop());
-      return null;
-    });
-    setRemoteStream(null);
-    setIsCallActive(false);
-    setIsCalling(false);
-    setIncomingCall(null);
-    setCallType(null);
-    setIsMuted(false);
-    setCallStartTime(null);
-    iceCandidateQueue.current = [];
-  }, []);
-
-  const handleCallEnded = useCallback(() => {
-    toast.info("The call has ended.");
-    cleanupCall();
-  }, [cleanupCall]);
-
-  const handleCallFinalized = useCallback(async ({ answer }) => {
-    if (peerConnection.current) {
-      await peerConnection.current.setRemoteDescription(new RTCSessionDescription(answer));
-      iceCandidateQueue.current.forEach(candidate => peerConnection.current.addIceCandidate(candidate));
-      iceCandidateQueue.current = [];
-      setIsCalling(false);
-      setIsCallActive(true);
-      setCallStartTime(Date.now());
-      // The logCallEvent logic will be triggered from within handleCallConnected, which is now part of this flow
-      const recipient = activeChat || (incomingCall ? incomingCall.from.username : null);
-      const type = callType || (incomingCall ? incomingCall.callType : 'call');
-      
-      if(recipient && type) {
-          socket.emit('log-call-event', {
-            sender: currentUser,
-            recipient: recipient,
-            eventType: 'call_started',
-            text: `${type.charAt(0).toUpperCase() + type.slice(1)} call started`,
-        });
-      }
-    }
-  }, [activeChat, callType, currentUser, incomingCall]);
-
-  const handleIceCandidate = useCallback(({ candidate }) => {
-    const newIceCandidate = new RTCIceCandidate(candidate);
-    if (peerConnection.current && peerConnection.current.remoteDescription) {
-      peerConnection.current.addIceCandidate(newIceCandidate);
-    } else {
-      iceCandidateQueue.current.push(newIceCandidate);
-    }
-  }, []);
-
-  // --- MAIN useEffect for Socket Listeners ---
   useEffect(() => {
-    if (!currentUser) navigate('/');
+    if (activeChat) {
+      setLoading(true);
+      setMessages([]); 
+      socket.emit('getPrivateMessages', { user1: currentUser, user2: activeChat });
+    }
+  }, [activeChat, currentUser]);
 
-    const handleConnect = () => {
-      setIsConnected(true);
-      if (socket.connected) socket.emit('newUser', currentUser);
+  useEffect(() => {
+    const handlePrivateMessages = (history) => {
+      setMessages(Array.isArray(history) ? history : []);
+      setLoading(false);
     };
-    const handleDisconnect = () => setIsConnected(false);
-    const handleUserList = (allUsers) => setUsers(allUsers);
-    const handleIncomingCall = ({ from, offer, callType }) => setIncomingCall({ from, offer, callType });
-    
-    socket.on('connect', handleConnect);
-    socket.on('disconnect', handleDisconnect);
-    socket.on('userList', handleUserList);
-    socket.on('incoming-call', handleIncomingCall);
-    socket.on('call-finalized', handleCallFinalized);
-    socket.on('ice-candidate', handleIceCandidate);
-    socket.on('call-ended', handleCallEnded);
 
-    if (socket.connected) handleConnect();
+    const handleReceiveMessage = (data) => {
+      if (!data || !data.sender || !data.recipient) return;
+
+      const isForCurrentChat =
+        (data.sender === currentUser && data.recipient === activeChat) ||
+        (data.sender === activeChat && data.recipient === currentUser);
+
+      if (isForCurrentChat) {
+        setMessages(prevMessages => [...prevMessages, data]);
+        setTypingUser(null); 
+      } else if (data.sender !== currentUser) {s
+        toast.info(`New message from ${data.sender}`);
+      }
+    };
+
+    const handleUserTyping = (sender) => {
+      if (sender === activeChat) {
+        setTypingUser(sender);
+        if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = setTimeout(() => setTypingUser(null), 3000);
+      }
+    };
+
+    const handleUserStoppedTyping = (sender) => {
+      if (sender === activeChat) {
+        setTypingUser(null);
+      }
+    };
+
+    socket.on('privateMessages', handlePrivateMessages);
+    socket.on('receivePrivateMessage', handleReceiveMessage);
+    socket.on('userTyping', handleUserTyping);
+    socket.on('userStoppedTyping', handleUserStoppedTyping);
 
     return () => {
-      socket.off('connect', handleConnect);
-      socket.off('disconnect', handleDisconnect);
-      socket.off('userList', handleUserList);
-      socket.off('incoming-call', handleIncomingCall);
-      socket.off('call-finalized', handleCallFinalized);
-      socket.off('ice-candidate', handleIceCandidate);
-      socket.off('call-ended', handleCallEnded);
+      socket.off('privateMessages', handlePrivateMessages);
+      socket.off('receivePrivateMessage', handleReceiveMessage);
+      socket.off('userTyping', handleUserTyping);
+      socket.off('userStoppedTyping', handleUserStoppedTyping);
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     };
-  }, [currentUser, navigate, handleCallEnded, handleCallFinalized, handleIceCandidate]);
+  }, [activeChat, currentUser]);
 
-  // Centralized useEffect to attach the remote stream to the media element.
   useEffect(() => {
-    if (remoteStream && theirVideo.current) {
-      theirVideo.current.srcObject = remoteStream;
-    }
-  }, [remoteStream]);
+    lastMessageRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, typingUser]);
 
-  // --- Call Functions ---
-  const getMedia = (type) => navigator.mediaDevices.getUserMedia({ video: type === 'video', audio: true });
+  const formatDate = (timestamp) => {
+    const date = new Date(timestamp);
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
 
-  const createPeerConnection = (stream) => {
-    peerConnection.current = new RTCPeerConnection(iceServers);
-    stream.getTracks().forEach(track => peerConnection.current.addTrack(track, stream));
-    peerConnection.current.ontrack = (event) => setRemoteStream(event.streams[0]);
+    if (date.toDateString() === today.toDateString()) return 'Today';
+    if (date.toDateString() === yesterday.toDateString()) return 'Yesterday';
+    return date.toLocaleDateString();
   };
 
-  const startCall = async (type) => {
-    if (!activeChat) return;
-    setCallType(type);
-    try {
-        const stream = await getMedia(type);
-        setLocalStream(stream);
-        createPeerConnection(stream);
-        const recipientUser = users.find(u => u.username === activeChat);
-        if (!recipientUser) {
-            toast.error("Could not find user to call.");
-            cleanupCall();
-            return;
-        }
-        peerConnection.current.onicecandidate = (event) => {
-            if (event.candidate) socket.emit('ice-candidate', { to: recipientUser.id, candidate: event.candidate });
-        };
-        const offer = await peerConnection.current.createOffer();
-        await peerConnection.current.setLocalDescription(offer);
-        socket.emit('call-user', { to: activeChat, from: { id: socket.id, username: currentUser }, offer, callType: type });
-        setIsCalling(true);
-    } catch (error) {
-        handleGetUserMediaError(error);
-    }
+  const formatTime = (timestamp) => {
+    return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
-  const answerCall = async () => {
-    if (!incomingCall) return;
-    setCallType(incomingCall.callType);
-    try {
-        const stream = await getMedia(incomingCall.callType);
-        setLocalStream(stream);
-        createPeerConnection(stream);
-        peerConnection.current.onicecandidate = (event) => {
-            if (event.candidate) socket.emit('ice-candidate', { to: incomingCall.from.id, candidate: event.candidate });
-        };
-        await peerConnection.current.setRemoteDescription(new RTCSessionDescription(incomingCall.offer));
-        iceCandidateQueue.current.forEach(candidate => peerConnection.current.addIceCandidate(candidate));
-        iceCandidateQueue.current = [];
-        const answer = await peerConnection.current.createAnswer();
-        await peerConnection.current.setLocalDescription(answer);
-        socket.emit('call-accepted', { to: incomingCall.from, answer });
-        setIncomingCall(null);
-        // Call becomes active in handleCallFinalized for the person answering too
-    } catch (error) {
-        handleGetUserMediaError(error);
+  const renderContent = () => {
+    if (!activeChat) {
+      return (
+        <div className="flex items-center justify-center h-full text-center text-gray-500">
+          <div>
+            <div className="text-6xl mb-4">💬</div>
+            <p>Select a user from the sidebar to start a conversation.</p>
+          </div>
+        </div>
+      );
     }
-  };
-  
-  const endCall = () => {
-    const durationString = formatDuration(callStartTime);
-    const recipientUsername = activeChat || (incomingCall ? incomingCall.from.username : null);
-    
-    if(recipientUsername && callType) {
-        socket.emit('log-call-event', {
-            sender: currentUser, recipient: recipientUsername, eventType: 'call_ended',
-            duration: durationString,
-            text: `${callType.charAt(0).toUpperCase() + callType.slice(1)} call ended`,
-        });
-        socket.emit('end-call', { to: recipientUsername });
-    }
-    cleanupCall();
-  };
 
-  const handleToggleMute = () => {
-    setLocalStream(currentStream => {
-      if (currentStream) {
-        currentStream.getAudioTracks().forEach(track => {
-          track.enabled = !track.enabled;
-          setIsMuted(!track.enabled);
-        });
+    if (loading) {
+      return (
+        <div className="flex items-center justify-center h-full text-center text-gray-500">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+        </div>
+      );
+    }
+
+    if (messages.length === 0) {
+      return (
+        <div className="flex items-center justify-center h-full text-center text-gray-500">
+          <div>
+            <div className="text-4xl mb-4"></div>
+            <p>No messages yet. Be the first to say hello!</p>
+          </div>
+        </div>
+      );
+    }
+
+    let lastDate = null;
+
+    return messages.map((message, index) => {
+      if (!message || !message.timestamp) return null; 
+
+      const isOwnMessage = message.sender === currentUser;
+      const messageDate = formatDate(message.timestamp);
+      const showDate = messageDate !== lastDate;
+      lastDate = messageDate;
+
+      if (message.eventType) {
+        return (
+          <div key={message._id || index}>
+            {showDate && <div className="text-center text-xs text-gray-500 my-4">{messageDate}</div>}
+            <div className="flex items-center justify-center my-3">
+              <div className="text-xs text-gray-600 bg-gray-100 rounded-full px-4 py-1.5 flex items-center gap-2 shadow-sm border">
+                {message.eventType === 'call_started' ? '📞' : '🛑'}
+                <span>{message.text}</span>
+                {message.duration && (
+                  <span className="font-semibold">({message.duration})</span>
+                )}
+                <span className="text-gray-400">{formatTime(message.timestamp)}</span>
+              </div>
+            </div>
+          </div>
+        );
       }
-      return currentStream;
+      
+      return (
+        <div key={message._id || index}>
+            {showDate && <div className="text-center text-xs text-gray-500 my-4">{messageDate}</div>}
+            <div className={`flex items-end gap-2 my-1 ${isOwnMessage ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-lg p-3 rounded-2xl ${isOwnMessage ? 'bg-blue-500 text-white rounded-br-lg' : 'bg-gray-200 text-gray-800 rounded-bl-lg'}`}>
+                  <p className="text-sm break-words">{message.text}</p>
+                  <p className={`text-xs mt-1.5 text-right ${isOwnMessage ? 'text-blue-200' : 'text-gray-500'}`}>
+                    {formatTime(message.timestamp)}
+                  </p>
+                </div>
+            </div>
+        </div>
+      );
     });
-  };
-
-  const handleGetUserMediaError = (error) => {
-    console.error("getUserMedia error:", error.name, error.message);
-    toast.error("Could not access camera/microphone.");
-    cleanupCall();
   };
 
   return (
-    <div className="flex h-screen font-sans bg-gray-100">
-      {incomingCall && !isCallActive && (
-        <div className="absolute top-5 right-5 bg-white p-4 rounded-lg shadow-xl z-50 flex flex-col items-center gap-3 border">
-          <p className="font-semibold">{incomingCall.from.username} is starting an {incomingCall.callType} call...</p>
-          <div className="flex gap-4">
-            <button onClick={answerCall} className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg">Answer</button>
-            <button onClick={() => { setIncomingCall(null); cleanupCall(); }} className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg">Decline</button>
+    <div className="flex-1 flex flex-col overflow-hidden bg-gray-50">
+      <div className="flex-1 overflow-y-auto p-6 space-y-2">
+        {renderContent()}
+        {typingUser && (
+          <div className="flex items-end gap-2 my-1 justify-start">
+             <div className="max-w-lg p-3 rounded-2xl bg-gray-200 text-gray-800 rounded-bl-lg">
+                <p className="text-sm italic animate-pulse">typing...</p>
+             </div>
           </div>
-        </div>
-      )}
-
-      {isCallActive && callType === 'video' && (
-        <VideoCall stream={localStream} myVideo={myVideo} theirVideo={theirVideo} onEndCall={endCall} />
-      )}
-      {isCallActive && callType === 'audio' && (
-        <AudioCall activeChat={activeChat || (incomingCall ? incomingCall.from.username : '')} isMuted={isMuted} onToggleMute={handleToggleMute} onEndCall={endCall} theirVideo={theirVideo} />
-      )}
-      
-      <ChatSidebar users={users} currentUser={currentUser} setActiveChat={setActiveChat} activeChat={activeChat} isConnected={isConnected} />
-      <div className="flex flex-col flex-grow">
-        <header className="bg-white text-gray-800 p-4 text-xl font-bold flex justify-between items-center border-b">
-          <span>{activeChat ? `Chat with ${activeChat}` : 'Select a user to chat'}</span>
-          {activeChat && (
-            <div className="flex gap-3">
-              <button onClick={() => startCall('audio')} disabled={isCalling || isCallActive} className="p-2 rounded-full bg-blue-500 hover:bg-blue-600 disabled:bg-gray-400" title="Start Audio Call">
-                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"></path></svg>
-              </button>
-              <button onClick={() => startCall('video')} disabled={isCalling || isCallActive} className="p-2 rounded-full bg-green-500 hover:bg-green-600 disabled:bg-gray-400" title="Start Video Call">
-                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
-              </button>
-            </div>
-          )}
-        </header>
-        <ChatBody activeChat={activeChat} />
-        <ChatFooter activeChat={activeChat} />
+        )}
+        <div ref={lastMessageRef} />
       </div>
+      <ToastContainer />
     </div>
   );
 };
 
-export default ChatPage;
+export default ChatBody;

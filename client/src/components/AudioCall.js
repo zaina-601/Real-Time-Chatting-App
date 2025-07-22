@@ -1,20 +1,17 @@
 import React, { useEffect } from 'react';
 
-const AudioCall = ({ activeChat, onToggleMute, isMuted, onEndCall, theirVideo, remoteStream }) => {
+const AudioCall = ({ activeChat, onToggleMute, isMuted, onEndCall, theirAudio, remoteStream }) => {
   
   useEffect(() => {
-    if (theirVideo.current && remoteStream) {
-      theirVideo.current.srcObject = remoteStream;
+    if (theirAudio.current && remoteStream) {
+      theirAudio.current.srcObject = remoteStream;
     }
-  }, [remoteStream, theirVideo]);
+  }, [remoteStream, theirAudio]);
 
   return (
     <div className="fixed inset-0 bg-gray-800 flex flex-col items-center justify-center z-50 text-white">
-      {/* 
-        This invisible audio element plays the other person's voice.
-        It uses the 'theirVideo' ref passed down from the parent.
-      */}
-      <audio ref={theirVideo} autoPlay playsInline />
+      {/* This invisible audio element plays the other person's voice. */}
+      <audio ref={theirAudio} autoPlay playsInline />
 
       <div className="flex flex-col items-center gap-6">
         <div className="w-40 h-40 bg-indigo-500 rounded-full flex items-center justify-center border-4 border-indigo-400">
