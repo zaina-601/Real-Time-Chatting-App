@@ -13,6 +13,7 @@ const iceServers = {
   iceServers: [ { urls: 'stun:stun.l.google.com:19302' } ],
 };
 
+// Helper function to format duration
 function formatDuration(startTime) {
   if (!startTime) return "less than a second";
   const durationSeconds = Math.floor((Date.now() - startTime) / 1000);
@@ -29,7 +30,7 @@ const ChatPage = () => {
   const navigate = useNavigate();
   const currentUser = sessionStorage.getItem('username');
 
-  // --- Call States ---
+  // Call States
   const [isCalling, setIsCalling] = useState(false);
   const [isCallActive, setIsCallActive] = useState(false);
   const [incomingCall, setIncomingCall] = useState(null);
@@ -44,19 +45,20 @@ const ChatPage = () => {
   const theirVideo = useRef();
   const iceCandidateQueue = useRef([]);
 
+  // --- STABILIZED CALLBACKS ---
+  // This section defines all our event handlers using useCallback.
+  // This prevents them from being recreated on every render, stopping the infinite loop.
+
   const cleanupCall = useCallback(() => {
-    console.log("Cleaning up all call resources...");
+    console.log("Cleaning up call resources...");
     if (peerConnection.current) {
         peerConnection.current.close();
         peerConnection.current = null;
     }
     setLocalStream(currentStream => {
-      if (currentStream) {
-        currentStream.getTracks().forEach(track => track.stop());
-      }
+      if (currentStream) currentStream.getTracks().forEach(track => track.stop());
       return null;
     });
-
     setRemoteStream(null);
     setIsCallActive(false);
     setIsCalling(false);
@@ -67,13 +69,44 @@ const ChatPage = () => {
     iceCandidateQueue.current = [];
   }, []);
 
-  useEffect(() => {
-    if (remoteStream && theirVideo.current) {
-      console.log("Attaching remote stream to the media element.");
-      theirVideo.current.srcObject = remoteStream;
-    }
-  }, [remoteStream]);
+  const handleCallEnded = useCallback(() => {
+    toast.info("The call has ended.");
+    cleanupCall();
+  }, [cleanupCall]);
 
+  const handleCallFinalized = useCallback(async ({ answer }) => {
+    if (peerConnection.current) {
+      await peerConnection.current.setRemoteDescription(new RTCSessionDescription(answer));
+      iceCandidateQueue.current.forEach(candidate => peerConnection.current.addIceCandidate(candidate));
+      iceCandidateQueue.current = [];
+      setIsCalling(false);
+      setIsCallActive(true);
+      setCallStartTime(Date.now());
+      // The logCallEvent logic will be triggered from within handleCallConnected, which is now part of this flow
+      const recipient = activeChat || (incomingCall ? incomingCall.from.username : null);
+      const type = callType || (incomingCall ? incomingCall.callType : 'call');
+      
+      if(recipient && type) {
+          socket.emit('log-call-event', {
+            sender: currentUser,
+            recipient: recipient,
+            eventType: 'call_started',
+            text: `${type.charAt(0).toUpperCase() + type.slice(1)} call started`,
+        });
+      }
+    }
+  }, [activeChat, callType, currentUser, incomingCall]);
+
+  const handleIceCandidate = useCallback(({ candidate }) => {
+    const newIceCandidate = new RTCIceCandidate(candidate);
+    if (peerConnection.current && peerConnection.current.remoteDescription) {
+      peerConnection.current.addIceCandidate(newIceCandidate);
+    } else {
+      iceCandidateQueue.current.push(newIceCandidate);
+    }
+  }, []);
+
+  // --- MAIN useEffect for Socket Listeners ---
   useEffect(() => {
     if (!currentUser) navigate('/');
 
@@ -83,30 +116,7 @@ const ChatPage = () => {
     };
     const handleDisconnect = () => setIsConnected(false);
     const handleUserList = (allUsers) => setUsers(allUsers);
-
-    const handleIncomingCall = ({ from, offer, callType }) => {
-      setIncomingCall({ from, offer, callType });
-    };
-    const handleCallFinalized = async ({ answer }) => {
-      if (peerConnection.current) {
-        await peerConnection.current.setRemoteDescription(new RTCSessionDescription(answer));
-        iceCandidateQueue.current.forEach(candidate => peerConnection.current.addIceCandidate(candidate));
-        iceCandidateQueue.current = [];
-        handleCallConnected();
-      }
-    };
-    const handleIceCandidate = ({ candidate }) => {
-      const newIceCandidate = new RTCIceCandidate(candidate);
-      if (peerConnection.current && peerConnection.current.remoteDescription) {
-        peerConnection.current.addIceCandidate(newIceCandidate);
-      } else {
-        iceCandidateQueue.current.push(newIceCandidate);
-      }
-    };
-    const handleCallEnded = () => {
-      toast.info("The call has ended.");
-      cleanupCall();
-    };
+    const handleIncomingCall = ({ from, offer, callType }) => setIncomingCall({ from, offer, callType });
     
     socket.on('connect', handleConnect);
     socket.on('disconnect', handleDisconnect);
@@ -126,40 +136,18 @@ const ChatPage = () => {
       socket.off('call-finalized', handleCallFinalized);
       socket.off('ice-candidate', handleIceCandidate);
       socket.off('call-ended', handleCallEnded);
-      cleanupCall();
     };
-  }, [currentUser, navigate, cleanupCall]);
+  }, [currentUser, navigate, handleCallEnded, handleCallFinalized, handleIceCandidate]);
 
-  const logCallEvent = (eventType, duration = null) => {
-    const recipient = activeChat || (incomingCall ? incomingCall.from.username : null);
-    if (!recipient || !callType) return;
+  // Centralized useEffect to attach the remote stream to the media element.
+  useEffect(() => {
+    if (remoteStream && theirVideo.current) {
+      theirVideo.current.srcObject = remoteStream;
+    }
+  }, [remoteStream]);
 
-    const eventText = eventType === 'call_started'
-      ? `${callType.charAt(0).toUpperCase() + callType.slice(1)} call started`
-      : `${callType.charAt(0).toUpperCase() + callType.slice(1)} call ended`;
-
-    socket.emit('log-call-event', {
-      sender: currentUser,
-      recipient: recipient,
-      eventType: eventType,
-      duration: duration,
-      text: eventText,
-    });
-  };
-
-  const handleCallConnected = () => {
-    setIsCalling(false);
-    setIsCallActive(true);
-    setCallStartTime(Date.now());
-    logCallEvent('call_started');
-  };
-
-  const getMedia = (type) => {
-    const constraints = type === 'video' 
-      ? { video: true, audio: true }
-      : { video: false, audio: true };
-    return navigator.mediaDevices.getUserMedia(constraints);
-  };
+  // --- Call Functions ---
+  const getMedia = (type) => navigator.mediaDevices.getUserMedia({ video: type === 'video', audio: true });
 
   const createPeerConnection = (stream) => {
     peerConnection.current = new RTCPeerConnection(iceServers);
@@ -181,9 +169,7 @@ const ChatPage = () => {
             return;
         }
         peerConnection.current.onicecandidate = (event) => {
-            if (event.candidate) {
-                socket.emit('ice-candidate', { to: recipientUser.id, candidate: event.candidate });
-            }
+            if (event.candidate) socket.emit('ice-candidate', { to: recipientUser.id, candidate: event.candidate });
         };
         const offer = await peerConnection.current.createOffer();
         await peerConnection.current.setLocalDescription(offer);
@@ -202,9 +188,7 @@ const ChatPage = () => {
         setLocalStream(stream);
         createPeerConnection(stream);
         peerConnection.current.onicecandidate = (event) => {
-            if (event.candidate) {
-                socket.emit('ice-candidate', { to: incomingCall.from.id, candidate: event.candidate });
-            }
+            if (event.candidate) socket.emit('ice-candidate', { to: incomingCall.from.id, candidate: event.candidate });
         };
         await peerConnection.current.setRemoteDescription(new RTCSessionDescription(incomingCall.offer));
         iceCandidateQueue.current.forEach(candidate => peerConnection.current.addIceCandidate(candidate));
@@ -213,7 +197,7 @@ const ChatPage = () => {
         await peerConnection.current.setLocalDescription(answer);
         socket.emit('call-accepted', { to: incomingCall.from, answer });
         setIncomingCall(null);
-        handleCallConnected();
+        // Call becomes active in handleCallFinalized for the person answering too
     } catch (error) {
         handleGetUserMediaError(error);
     }
@@ -221,11 +205,15 @@ const ChatPage = () => {
   
   const endCall = () => {
     const durationString = formatDuration(callStartTime);
-    logCallEvent('call_ended', durationString);
-
     const recipientUsername = activeChat || (incomingCall ? incomingCall.from.username : null);
-    if(recipientUsername) {
-      socket.emit('end-call', { to: recipientUsername });
+    
+    if(recipientUsername && callType) {
+        socket.emit('log-call-event', {
+            sender: currentUser, recipient: recipientUsername, eventType: 'call_ended',
+            duration: durationString,
+            text: `${callType.charAt(0).toUpperCase() + callType.slice(1)} call ended`,
+        });
+        socket.emit('end-call', { to: recipientUsername });
     }
     cleanupCall();
   };
@@ -244,17 +232,7 @@ const ChatPage = () => {
 
   const handleGetUserMediaError = (error) => {
     console.error("getUserMedia error:", error.name, error.message);
-    switch(error.name) {
-        case 'NotFoundError':
-            toast.error("No camera or microphone found.");
-            break;
-        case 'NotAllowedError':
-            toast.error("Permission for camera/microphone denied.");
-            break;
-        default:
-            toast.error("Could not access media devices.");
-            break;
-    }
+    toast.error("Could not access camera/microphone.");
     cleanupCall();
   };
 
@@ -271,21 +249,10 @@ const ChatPage = () => {
       )}
 
       {isCallActive && callType === 'video' && (
-        <VideoCall
-          stream={localStream}
-          myVideo={myVideo}
-          theirVideo={theirVideo}
-          onEndCall={endCall}
-        />
+        <VideoCall stream={localStream} myVideo={myVideo} theirVideo={theirVideo} onEndCall={endCall} />
       )}
       {isCallActive && callType === 'audio' && (
-        <AudioCall
-          activeChat={activeChat || (incomingCall ? incomingCall.from.username : '')}
-          isMuted={isMuted}
-          onToggleMute={handleToggleMute}
-          onEndCall={endCall}
-          theirAudio={theirVideo} 
-        />
+        <AudioCall activeChat={activeChat || (incomingCall ? incomingCall.from.username : '')} isMuted={isMuted} onToggleMute={handleToggleMute} onEndCall={endCall} theirVideo={theirVideo} />
       )}
       
       <ChatSidebar users={users} currentUser={currentUser} setActiveChat={setActiveChat} activeChat={activeChat} isConnected={isConnected} />
